@@ -272,11 +272,27 @@ When OTel is enabled, all structured logs (JSON) automatically include `trace_id
 
 ## Install
 
+### Homebrew
+
+```console
+$ brew install fujiwara/tap/amqp-gateway
+```
+
+### mise
+
+```console
+$ mise use github:fujiwara/amqp-gateway
+```
+
+### Go
+
 ```console
 $ go install github.com/fujiwara/amqp-gateway/cmd/amqp-gateway@latest
 ```
 
-Or download from [Releases](https://github.com/fujiwara/amqp-gateway/releases).
+### Binary
+
+Download from [Releases](https://github.com/fujiwara/amqp-gateway/releases).
 
 ## LICENSE
 
