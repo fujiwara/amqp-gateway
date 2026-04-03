@@ -24,7 +24,7 @@ func TestHandleHealthz(t *testing.T) {
 }
 
 func TestHandlePublishNoAuth(t *testing.T) {
-	client := NewAMQPClient("amqp://localhost:5672")
+	client := testNewAMQPClient("amqp://localhost:5672")
 	handler := handlePublish(client)
 
 	req := httptest.NewRequest("POST", "/v1/publish", strings.NewReader("test body"))
@@ -37,7 +37,7 @@ func TestHandlePublishNoAuth(t *testing.T) {
 }
 
 func TestHandleRPCNoAuth(t *testing.T) {
-	client := NewAMQPClient("amqp://localhost:5672")
+	client := testNewAMQPClient("amqp://localhost:5672")
 	handler := handleRPC(client)
 
 	req := httptest.NewRequest("POST", "/v1/rpc", strings.NewReader("test body"))
@@ -50,7 +50,7 @@ func TestHandleRPCNoAuth(t *testing.T) {
 }
 
 func TestHandlePublishBadHeader(t *testing.T) {
-	client := NewAMQPClient("amqp://localhost:5672")
+	client := testNewAMQPClient("amqp://localhost:5672")
 	handler := handlePublish(client)
 
 	req := httptest.NewRequest("POST", "/v1/publish", strings.NewReader("test body"))
@@ -124,8 +124,8 @@ func TestParseBasicAuth(t *testing.T) {
 }
 
 func TestNewServeMux(t *testing.T) {
-	client := NewAMQPClient("amqp://localhost:5672")
-	mux := NewServeMux(client)
+	client := testNewAMQPClient("amqp://localhost:5672")
+	mux := testNewServeMux(client)
 
 	// Test healthz is registered
 	req := httptest.NewRequest("GET", "/healthz", nil)

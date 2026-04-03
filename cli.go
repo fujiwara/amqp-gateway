@@ -75,6 +75,11 @@ func RunCLI(ctx context.Context) error {
 		kong.BindTo(ctx, (*context.Context)(nil)),
 	)
 	setupLogger(cli.LogLevel)
+	shutdownOTel, err := setupOTelProviders(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to setup OpenTelemetry providers: %w", err)
+	}
+	defer shutdownOTel(ctx)
 	return kctx.Run(&cli)
 }
 
@@ -91,5 +96,5 @@ func setupLogger(level string) {
 		lv = slog.LevelInfo
 	}
 	handler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lv})
-	slog.SetDefault(slog.New(handler))
+	slog.SetDefault(slog.New(newTraceHandler(handler)))
 }

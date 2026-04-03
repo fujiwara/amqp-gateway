@@ -9,16 +9,28 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // RunServer starts the HTTP server.
 func RunServer(ctx context.Context, cfg *Config) error {
-	client := NewAMQPClient(cfg.RabbitMQURL)
-	mux := NewServeMux(client)
+	metrics, err := newMetrics()
+	if err != nil {
+		return fmt.Errorf("failed to create metrics: %w", err)
+	}
+	tracer := newTracer()
+
+	client := NewAMQPClient(cfg.RabbitMQURL, tracer, metrics)
+	mux := NewServeMux(client, metrics, tracer)
 
 	server := &http.Server{
 		Addr:    cfg.ListenAddr,
@@ -49,13 +61,13 @@ func RunServer(ctx context.Context, cfg *Config) error {
 }
 
 // NewServeMux creates the HTTP handler with all routes.
-func NewServeMux(client *AMQPClient) http.Handler {
+func NewServeMux(client *AMQPClient, metrics *Metrics, tracer trace.Tracer) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/publish", handlePublish(client))
 	mux.HandleFunc("POST /v1/rpc", handleRPC(client))
 	mux.HandleFunc("GET /healthz", handleHealthz())
 	mux.HandleFunc("GET /readyz", handleReadyz(client))
-	return accessLog(mux)
+	return accessLog(mux, metrics, tracer)
 }
 
 // statusResponseWriter wraps http.ResponseWriter to capture the status code.
@@ -69,16 +81,45 @@ func (w *statusResponseWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-func accessLog(next http.Handler) http.Handler {
+func accessLog(next http.Handler, metrics *Metrics, tracer trace.Tracer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract trace context from incoming HTTP request
+		prop := propagation.TraceContext{}
+		ctx := prop.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+
+		ctx, span := tracer.Start(ctx, "http.request",
+			trace.WithAttributes(
+				semconv.HTTPRequestMethodKey.String(r.Method),
+				semconv.URLPath(r.URL.Path),
+			),
+		)
+
 		start := time.Now()
 		sw := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(sw, r)
+		next.ServeHTTP(sw, r.WithContext(ctx))
+		elapsed := time.Since(start)
+
+		span.SetAttributes(semconv.HTTPResponseStatusCode(sw.status))
+		span.End()
+
+		// Record metrics
+		metricAttrs := metric.WithAttributes(
+			attribute.String("method", r.Method),
+			attribute.String("path", r.URL.Path),
+		)
+		metrics.httpRequestsTotal.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("method", r.Method),
+			attribute.String("path", r.URL.Path),
+			attribute.String("status", strconv.Itoa(sw.status)),
+		))
+		metrics.httpRequestDuration.Record(ctx, elapsed.Seconds(), metricAttrs)
+
+		// Access log with trace context
 		attrs := []any{
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", sw.status,
-			"duration", time.Since(start).String(),
+			"duration", elapsed.String(),
 			"remote_addr", r.RemoteAddr,
 		}
 		if user, _, ok := parseBasicAuth(r); ok {
@@ -93,7 +134,7 @@ func accessLog(next http.Handler) http.Handler {
 		if v := r.Header.Get(headerRoutingKey); v != "" {
 			attrs = append(attrs, "routing_key", v)
 		}
-		slog.Info("access", attrs...)
+		slog.InfoContext(ctx, "access", attrs...)
 	})
 }
 
@@ -152,7 +193,7 @@ func handleRPC(client *AMQPClient) http.HandlerFunc {
 			return
 		}
 
-		writeRPCResponse(w, msg)
+		writeRPCResponse(r.Context(), w, msg)
 	}
 }
 
@@ -211,8 +252,6 @@ func writeAMQPError(w http.ResponseWriter, err error) {
 	if errors.As(err, &amqpErr) {
 		switch amqpErr.Code {
 		case amqp.AccessRefused:
-			// AccessRefused at connection level = auth failure (401)
-			// AccessRefused at channel level = permission denied (403)
 			if strings.Contains(err.Error(), "username or password") {
 				http.Error(w, err.Error(), http.StatusUnauthorized)
 			} else {
@@ -229,7 +268,7 @@ func writeAMQPError(w http.ResponseWriter, err error) {
 	http.Error(w, "RabbitMQ unavailable", http.StatusServiceUnavailable)
 }
 
-func writeRPCResponse(w http.ResponseWriter, msg *amqp.Delivery) {
+func writeRPCResponse(ctx context.Context, w http.ResponseWriter, msg *amqp.Delivery) {
 	// Set AMQP response headers
 	if msg.ContentType != "" {
 		w.Header().Set("Content-Type", msg.ContentType)
@@ -247,6 +286,13 @@ func writeRPCResponse(w http.ResponseWriter, msg *amqp.Delivery) {
 	// Set custom headers from AMQP headers table
 	for key, value := range msg.Headers {
 		w.Header().Set(headerCustomPrefix+key, fmt.Sprintf("%v", value))
+	}
+
+	// Propagate trace context from AMQP response to HTTP response
+	if msg.Headers != nil {
+		respCtx := extractTraceContext(ctx, amqp.Table(msg.Headers))
+		prop := propagation.TraceContext{}
+		prop.Inject(respCtx, propagation.HeaderCarrier(w.Header()))
 	}
 
 	w.WriteHeader(http.StatusOK)

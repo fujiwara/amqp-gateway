@@ -90,8 +90,8 @@ func TestIntegrationPublish(t *testing.T) {
 	queueName := fmt.Sprintf("test-publish-%d", time.Now().UnixNano())
 	setupTestQueue(t, rmqURL, queueName)
 
-	client := NewAMQPClient(rmqURL)
-	mux := NewServeMux(client)
+	client := testNewAMQPClient(rmqURL)
+	mux := testNewServeMux(client)
 
 	body := `{"hello":"world"}`
 	req := httptest.NewRequest("POST", "/v1/publish", strings.NewReader(body))
@@ -129,8 +129,8 @@ func TestIntegrationPublish(t *testing.T) {
 func TestIntegrationPublishMandatoryUnroutable(t *testing.T) {
 	rmqURL := requireRabbitMQ(t)
 
-	client := NewAMQPClient(rmqURL)
-	mux := NewServeMux(client)
+	client := testNewAMQPClient(rmqURL)
+	mux := testNewServeMux(client)
 
 	// Publish with mandatory=true to a non-existent queue
 	req := httptest.NewRequest("POST", "/v1/publish", strings.NewReader("test"))
@@ -148,8 +148,8 @@ func TestIntegrationPublishMandatoryUnroutable(t *testing.T) {
 func TestIntegrationPublishBadAuth(t *testing.T) {
 	requireRabbitMQ(t)
 
-	client := NewAMQPClient(testRabbitMQURL)
-	mux := NewServeMux(client)
+	client := testNewAMQPClient(testRabbitMQURL)
+	mux := testNewServeMux(client)
 
 	req := httptest.NewRequest("POST", "/v1/publish", strings.NewReader("test"))
 	req.Header.Set("Authorization", testBasicAuth("baduser", "badpass"))
@@ -208,8 +208,8 @@ func TestIntegrationRPC(t *testing.T) {
 	}()
 	<-rpcReady
 
-	client := NewAMQPClient(rmqURL)
-	mux := NewServeMux(client)
+	client := testNewAMQPClient(rmqURL)
+	mux := testNewServeMux(client)
 
 	req := httptest.NewRequest("POST", "/v1/rpc", strings.NewReader("ping"))
 	req.Header.Set("Authorization", testBasicAuth("guest", "guest"))
@@ -238,8 +238,8 @@ func TestIntegrationRPCTimeout(t *testing.T) {
 	queueName := fmt.Sprintf("test-rpc-timeout-%d", time.Now().UnixNano())
 	setupTestQueue(t, rmqURL, queueName)
 
-	client := NewAMQPClient(rmqURL)
-	mux := NewServeMux(client)
+	client := testNewAMQPClient(rmqURL)
+	mux := testNewServeMux(client)
 
 	req := httptest.NewRequest("POST", "/v1/rpc", strings.NewReader("ping"))
 	req.Header.Set("Authorization", testBasicAuth("guest", "guest"))
@@ -256,8 +256,8 @@ func TestIntegrationRPCTimeout(t *testing.T) {
 func TestIntegrationReadyz(t *testing.T) {
 	rmqURL := requireRabbitMQ(t)
 
-	client := NewAMQPClient(rmqURL)
-	mux := NewServeMux(client)
+	client := testNewAMQPClient(rmqURL)
+	mux := testNewServeMux(client)
 
 	req := httptest.NewRequest("GET", "/readyz", nil)
 	w := httptest.NewRecorder()
@@ -270,8 +270,8 @@ func TestIntegrationReadyz(t *testing.T) {
 
 func TestIntegrationReadyzUnavailable(t *testing.T) {
 	// Point to a non-existent RabbitMQ
-	client := NewAMQPClient("amqp://localhost:59999")
-	mux := NewServeMux(client)
+	client := testNewAMQPClient("amqp://localhost:59999")
+	mux := testNewServeMux(client)
 
 	req := httptest.NewRequest("GET", "/readyz", nil)
 	w := httptest.NewRecorder()

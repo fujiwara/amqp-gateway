@@ -37,7 +37,8 @@ Jsonnet or JSON format:
 ```jsonnet
 {
   rabbitmq_url: "amqp://rabbitmq.internal:5672",
-  listen_addr: ":8080",  // default: ":8080"
+  listen_addr: ":8080",          // default: ":8080"
+  shutdown_timeout: "30s",       // default: "30s"
 }
 ```
 
@@ -153,6 +154,49 @@ HTTP Basic authentication. Credentials are passed through to RabbitMQ for connec
 | `404` | Exchange not found / message unroutable (mandatory) |
 | `504` | RPC timeout |
 | `503` | RabbitMQ unavailable |
+
+## OpenTelemetry
+
+amqp-gateway supports OpenTelemetry tracing and metrics. Enable by setting environment variables:
+
+```console
+$ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+$ export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf  # or "grpc" (default: http/protobuf)
+$ amqp-gateway -c config.jsonnet
+```
+
+When enabled, no code or config changes are needed — OTel is configured entirely via environment variables.
+
+### Traces
+
+Trace context (W3C `traceparent`) flows through the full request lifecycle:
+
+```
+HTTP client → amqp-gateway → RabbitMQ → consumer (e.g. mqsubscriber)
+```
+
+- **HTTP request**: Extracts `traceparent` from incoming HTTP headers
+- **AMQP publish**: Injects `traceparent` into AMQP message headers, so downstream consumers (e.g. [mqsubscriber](https://github.com/fujiwara/mqsubscriber)) can continue the trace
+- **RPC response**: Extracts `traceparent` from AMQP response and propagates it to the HTTP response
+
+Spans created:
+- `http.request` — HTTP request lifecycle
+- `amqp.publish` — AMQP publish operation (SpanKind: Producer)
+- `amqp.rpc` — RPC operation (SpanKind: Client)
+- `amqp.rpc.wait` — Waiting for RPC response
+
+### Metrics
+
+| Metric | Type | Attributes |
+|---|---|---|
+| `amqp_gateway.http.requests` | Counter | method, path, status |
+| `amqp_gateway.http.duration` | Histogram (s) | method, path |
+| `amqp_gateway.publish.total` | Counter | result (success/error) |
+| `amqp_gateway.rpc.total` | Counter | result (success/error/timeout) |
+
+### Log Correlation
+
+When OTel is enabled, all structured logs (JSON) automatically include `trace_id` and `span_id` fields for correlation with traces.
 
 ## Install
 
