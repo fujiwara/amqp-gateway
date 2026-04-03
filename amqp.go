@@ -27,7 +27,7 @@ type AMQPClient struct {
 // NewAMQPClient creates a new AMQPClient.
 func NewAMQPClient(cfg *Config, tracer trace.Tracer, metrics *Metrics) *AMQPClient {
 	return &AMQPClient{
-		baseURL: cfg.RabbitMQURL,
+		baseURL: cfg.AMQPURL,
 		tracer:  tracer,
 		metrics: metrics,
 		pool:    newConnPool(cfg.MaxConnsPerUser, cfg.ConnTTL),
@@ -43,7 +43,7 @@ func (c *AMQPClient) Close() {
 func (c *AMQPClient) dialURL(params *PublishParams) (string, error) {
 	u, err := url.Parse(c.baseURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid rabbitmq_url: %w", err)
+		return "", fmt.Errorf("invalid amqp_url: %w", err)
 	}
 	u.User = url.UserPassword(params.Username, params.Password)
 	// AMQP URI spec: default vhost "/" is represented as empty path segment.
