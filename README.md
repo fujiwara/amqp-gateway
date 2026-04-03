@@ -32,7 +32,7 @@ Commands:
 
 ### Configuration
 
-Jsonnet or JSON format:
+Config files are evaluated by [jsonnet-armed](https://github.com/fujiwara/jsonnet-armed), supporting Jsonnet and JSON format. You can use Jsonnet features such as variables, functions, and environment variable expansion.
 
 ```jsonnet
 {
@@ -41,6 +41,17 @@ Jsonnet or JSON format:
   shutdown_timeout: "30s",       // default: "30s"
   max_conns_per_user: 2,         // default: 2
   conn_ttl: "5m",                // default: "5m"
+}
+```
+
+Environment variables can be referenced using `must_env` (fails if unset) or `env` (returns a default):
+
+```jsonnet
+local must_env = std.native('must_env');
+local env = std.native('env');
+{
+  amqp_url: must_env('AMQP_URL'),
+  listen_addr: env('LISTEN_ADDR', ':8080'),
 }
 ```
 
