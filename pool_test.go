@@ -15,7 +15,7 @@ func TestConnPoolGetPut(t *testing.T) {
 	pool := newConnPool(2)
 	defer pool.closeAll()
 
-	conn1, err := pool.get(rmqURL, "guest", "/")
+	conn1, err := pool.get(rmqURL, "guest", "guest", "/")
 	if err != nil {
 		t.Fatalf("get conn1: %v", err)
 	}
@@ -23,10 +23,10 @@ func TestConnPoolGetPut(t *testing.T) {
 		t.Fatal("conn1 should be open")
 	}
 
-	pool.put(conn1, "guest", "/")
+	pool.put(conn1, "guest", "guest", "/")
 
 	// Should reuse the pooled connection
-	conn2, err := pool.get(rmqURL, "guest", "/")
+	conn2, err := pool.get(rmqURL, "guest", "guest", "/")
 	if err != nil {
 		t.Fatalf("get conn2: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestConnPoolGetPut(t *testing.T) {
 		t.Error("expected to reuse the same connection")
 	}
 
-	pool.put(conn2, "guest", "/")
+	pool.put(conn2, "guest", "guest", "/")
 }
 
 func TestConnPoolMaxConns(t *testing.T) {
@@ -43,17 +43,17 @@ func TestConnPoolMaxConns(t *testing.T) {
 	pool := newConnPool(1)
 	defer pool.closeAll()
 
-	conn1, err := pool.get(rmqURL, "guest", "/")
+	conn1, err := pool.get(rmqURL, "guest", "guest", "/")
 	if err != nil {
 		t.Fatalf("get conn1: %v", err)
 	}
-	conn2, err := pool.get(rmqURL, "guest", "/")
+	conn2, err := pool.get(rmqURL, "guest", "guest", "/")
 	if err != nil {
 		t.Fatalf("get conn2: %v", err)
 	}
 
-	pool.put(conn1, "guest", "/")
-	pool.put(conn2, "guest", "/") // pool full, conn2 should be closed
+	pool.put(conn1, "guest", "guest", "/")
+	pool.put(conn2, "guest", "guest", "/") // pool full, conn2 should be closed
 
 	if !conn2.IsClosed() {
 		t.Error("conn2 should be closed (pool full)")
@@ -69,23 +69,23 @@ func TestConnPoolStaleConnection(t *testing.T) {
 	pool := newConnPool(2)
 	defer pool.closeAll()
 
-	conn, err := pool.get(rmqURL, "guest", "/")
+	conn, err := pool.get(rmqURL, "guest", "guest", "/")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
 
 	conn.Close() // simulate server-side disconnect
-	pool.put(conn, "guest", "/")
+	pool.put(conn, "guest", "guest", "/")
 
 	// Should skip stale and dial new
-	conn2, err := pool.get(rmqURL, "guest", "/")
+	conn2, err := pool.get(rmqURL, "guest", "guest", "/")
 	if err != nil {
 		t.Fatalf("get after stale: %v", err)
 	}
 	if conn2.IsClosed() {
 		t.Error("new connection should be open")
 	}
-	pool.put(conn2, "guest", "/")
+	pool.put(conn2, "guest", "guest", "/")
 }
 
 func TestConnPoolCloseAll(t *testing.T) {
@@ -93,11 +93,11 @@ func TestConnPoolCloseAll(t *testing.T) {
 
 	pool := newConnPool(2)
 
-	conn, err := pool.get(rmqURL, "guest", "/")
+	conn, err := pool.get(rmqURL, "guest", "guest", "/")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	pool.put(conn, "guest", "/")
+	pool.put(conn, "guest", "guest", "/")
 	pool.closeAll()
 
 	if !conn.IsClosed() {

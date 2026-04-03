@@ -61,7 +61,7 @@ func (c *AMQPClient) getConn(params *PublishParams) (*amqp.Connection, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := c.pool.get(dialURL, params.Username, params.VHost)
+	conn, err := c.pool.get(dialURL, params.Username, params.Password, params.VHost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
@@ -70,7 +70,7 @@ func (c *AMQPClient) getConn(params *PublishParams) (*amqp.Connection, error) {
 
 // putConn returns a connection to the pool.
 func (c *AMQPClient) putConn(conn *amqp.Connection, params *PublishParams) {
-	c.pool.put(conn, params.Username, params.VHost)
+	c.pool.put(conn, params.Username, params.Password, params.VHost)
 }
 
 func publishAttrs(params *PublishParams) trace.SpanStartOption {

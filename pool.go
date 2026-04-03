@@ -27,15 +27,15 @@ func newConnPool(maxConns int) *connPool {
 	}
 }
 
-func poolKey(username, vhost string) string {
-	return fmt.Sprintf("%s@%s", username, vhost)
+func poolKey(username, password, vhost string) string {
+	return fmt.Sprintf("%s:%s@%s", username, password, vhost)
 }
 
 // get retrieves an idle connection from the pool, or dials a new one.
 // The returned connection may be closed by the server; callers should
 // handle errors and discard the connection without returning it.
-func (p *connPool) get(dialURL, username, vhost string) (*amqp.Connection, error) {
-	key := poolKey(username, vhost)
+func (p *connPool) get(dialURL, username, password, vhost string) (*amqp.Connection, error) {
+	key := poolKey(username, password, vhost)
 
 	p.mu.Lock()
 	for len(p.conns[key]) > 0 {
@@ -63,12 +63,12 @@ func (p *connPool) get(dialURL, username, vhost string) (*amqp.Connection, error
 
 // put returns a connection to the pool. If the pool is full or
 // the connection is closed, the connection is closed and discarded.
-func (p *connPool) put(conn *amqp.Connection, username, vhost string) {
+func (p *connPool) put(conn *amqp.Connection, username, password, vhost string) {
 	if conn.IsClosed() {
 		return
 	}
 
-	key := poolKey(username, vhost)
+	key := poolKey(username, password, vhost)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
