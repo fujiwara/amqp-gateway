@@ -88,6 +88,18 @@ func publishAttrs(params *PublishParams) trace.SpanStartOption {
 	)
 }
 
+// spanDo runs fn within a child span. If fn returns an error, the span records it.
+func (c *AMQPClient) spanDo(ctx context.Context, name string, fn func(context.Context) error) error {
+	ctx, span := c.tracer.Start(ctx, name)
+	defer span.End()
+	if err := fn(ctx); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+	return nil
+}
+
 func (c *AMQPClient) recordError(ctx context.Context, span trace.Span, counter metric.Int64Counter, err error) {
 	span.RecordError(err)
 	span.SetStatus(codes.Error, err.Error())
@@ -105,8 +117,12 @@ func (c *AMQPClient) Publish(ctx context.Context, params *PublishParams, body []
 	// Inject trace context into AMQP headers
 	injectTraceContext(ctx, params.Headers)
 
-	h, err := c.getConn(params)
-	if err != nil {
+	var h *connHandle
+	if err := c.spanDo(ctx, "amqp.connect", func(ctx context.Context) error {
+		var err error
+		h, err = c.getConn(params)
+		return err
+	}); err != nil {
 		c.recordError(ctx, span, c.metrics.publishTotal, err)
 		return err
 	}
@@ -119,21 +135,20 @@ func (c *AMQPClient) Publish(ctx context.Context, params *PublishParams, body []
 		}
 	}()
 
-	ch, err := h.conn.Channel()
-	if err != nil {
-		returnConn = false
-		err = fmt.Errorf("failed to open channel: %w", err)
+	var ch *amqp.Channel
+	if err := c.spanDo(ctx, "amqp.channel", func(ctx context.Context) error {
+		var err error
+		ch, err = h.conn.Channel()
+		if err != nil {
+			returnConn = false
+			return fmt.Errorf("failed to open channel: %w", err)
+		}
+		return ch.Confirm(false)
+	}); err != nil {
 		c.recordError(ctx, span, c.metrics.publishTotal, err)
 		return err
 	}
 	defer ch.Close()
-
-	if err := ch.Confirm(false); err != nil {
-		returnConn = false
-		err = fmt.Errorf("failed to enable confirm mode: %w", err)
-		c.recordError(ctx, span, c.metrics.publishTotal, err)
-		return err
-	}
 
 	// Listen for basic.return (unroutable messages when mandatory=true)
 	returnCh := ch.NotifyReturn(make(chan amqp.Return, 1))
@@ -148,24 +163,25 @@ func (c *AMQPClient) Publish(ctx context.Context, params *PublishParams, body []
 		Body:          body,
 	}
 
-	confirm, err := ch.PublishWithDeferredConfirmWithContext(
-		ctx,
-		params.Exchange,
-		params.RoutingKey,
-		params.Mandatory,
-		false, // immediate
-		pub,
-	)
-	if err != nil {
-		returnConn = false
-		err = fmt.Errorf("failed to publish message: %w", err)
-		c.recordError(ctx, span, c.metrics.publishTotal, err)
-		return err
-	}
-
-	if !confirm.Wait() {
-		returnConn = false
-		err := fmt.Errorf("publish was not confirmed by broker")
+	if err := c.spanDo(ctx, "amqp.publish.send", func(ctx context.Context) error {
+		confirm, err := ch.PublishWithDeferredConfirmWithContext(
+			ctx,
+			params.Exchange,
+			params.RoutingKey,
+			params.Mandatory,
+			false,
+			pub,
+		)
+		if err != nil {
+			returnConn = false
+			return fmt.Errorf("failed to publish message: %w", err)
+		}
+		if !confirm.Wait() {
+			returnConn = false
+			return fmt.Errorf("publish was not confirmed by broker")
+		}
+		return nil
+	}); err != nil {
 		c.recordError(ctx, span, c.metrics.publishTotal, err)
 		return err
 	}
@@ -180,7 +196,6 @@ func (c *AMQPClient) Publish(ctx context.Context, params *PublishParams, body []
 				Exchange:   ret.Exchange,
 				RoutingKey: ret.RoutingKey,
 			}
-			// Unroutable is not a connection error, keep the connection
 			c.recordError(ctx, span, c.metrics.publishTotal, err)
 			return err
 		}
@@ -206,8 +221,12 @@ func (c *AMQPClient) RPC(ctx context.Context, params *PublishParams, body []byte
 	// Inject trace context into AMQP headers
 	injectTraceContext(ctx, params.Headers)
 
-	h, err := c.getConn(params)
-	if err != nil {
+	var h *connHandle
+	if err := c.spanDo(ctx, "amqp.connect", func(ctx context.Context) error {
+		var err error
+		h, err = c.getConn(params)
+		return err
+	}); err != nil {
 		c.recordError(ctx, span, c.metrics.rpcTotal, err)
 		return nil, err
 	}
@@ -220,48 +239,41 @@ func (c *AMQPClient) RPC(ctx context.Context, params *PublishParams, body []byte
 		}
 	}()
 
-	ch, err := h.conn.Channel()
-	if err != nil {
-		returnConn = false
-		err = fmt.Errorf("failed to open channel: %w", err)
+	var ch *amqp.Channel
+	if err := c.spanDo(ctx, "amqp.channel", func(ctx context.Context) error {
+		var err error
+		ch, err = h.conn.Channel()
+		if err != nil {
+			returnConn = false
+			return fmt.Errorf("failed to open channel: %w", err)
+		}
+		return nil
+	}); err != nil {
 		c.recordError(ctx, span, c.metrics.rpcTotal, err)
 		return nil, err
 	}
 	defer ch.Close()
 
-	// Create exclusive temporary queue for reply
-	q, err := ch.QueueDeclare(
-		"",    // auto-generated name
-		false, // durable
-		true,  // auto-delete
-		true,  // exclusive
-		false, // no-wait
-		nil,
-	)
-	if err != nil {
-		returnConn = false
-		err = fmt.Errorf("failed to declare reply queue: %w", err)
+	var q amqp.Queue
+	var msgs <-chan amqp.Delivery
+	if err := c.spanDo(ctx, "amqp.rpc.setup", func(ctx context.Context) error {
+		var err error
+		q, err = ch.QueueDeclare("", false, true, true, false, nil)
+		if err != nil {
+			returnConn = false
+			return fmt.Errorf("failed to declare reply queue: %w", err)
+		}
+		msgs, err = ch.Consume(q.Name, "", true, true, false, false, nil)
+		if err != nil {
+			returnConn = false
+			return fmt.Errorf("failed to consume from reply queue: %w", err)
+		}
+		return nil
+	}); err != nil {
 		c.recordError(ctx, span, c.metrics.rpcTotal, err)
 		return nil, err
 	}
 
-	msgs, err := ch.Consume(
-		q.Name, // queue
-		"",     // consumer
-		true,   // auto-ack
-		true,   // exclusive
-		false,  // no-local
-		false,  // no-wait
-		nil,
-	)
-	if err != nil {
-		returnConn = false
-		err = fmt.Errorf("failed to consume from reply queue: %w", err)
-		c.recordError(ctx, span, c.metrics.rpcTotal, err)
-		return nil, err
-	}
-
-	// Set correlation ID if not provided
 	correlationID := params.CorrelationID
 	if correlationID == "" {
 		correlationID = generateID()
@@ -278,14 +290,9 @@ func (c *AMQPClient) RPC(ctx context.Context, params *PublishParams, body []byte
 		Body:          body,
 	}
 
-	if err := ch.PublishWithContext(
-		ctx,
-		params.Exchange,
-		params.RoutingKey,
-		params.Mandatory,
-		false, // immediate
-		pub,
-	); err != nil {
+	if err := c.spanDo(ctx, "amqp.rpc.send", func(ctx context.Context) error {
+		return ch.PublishWithContext(ctx, params.Exchange, params.RoutingKey, params.Mandatory, false, pub)
+	}); err != nil {
 		returnConn = false
 		err = fmt.Errorf("failed to publish RPC request: %w", err)
 		c.recordError(ctx, span, c.metrics.rpcTotal, err)
@@ -323,7 +330,6 @@ func (c *AMQPClient) RPC(ctx context.Context, params *PublishParams, body []byte
 	case <-timeoutCtx.Done():
 		waitSpan.End()
 		err := &TimeoutError{Timeout: params.Timeout}
-		// Timeout is not a connection error, keep the connection
 		c.recordError(ctx, span, c.metrics.rpcTotal, err)
 		return nil, err
 	}
