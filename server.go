@@ -5,12 +5,14 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	amqp "github.com/rabbitmq/amqp091-go"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"strings"
+	"time"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // RunServer starts the HTTP server.
@@ -51,7 +53,46 @@ func NewServeMux(client *AMQPClient) http.Handler {
 	mux.HandleFunc("POST /v1/rpc", handleRPC(client))
 	mux.HandleFunc("GET /healthz", handleHealthz())
 	mux.HandleFunc("GET /readyz", handleReadyz(client))
-	return mux
+	return accessLog(mux)
+}
+
+// statusResponseWriter wraps http.ResponseWriter to capture the status code.
+type statusResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusResponseWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func accessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		sw := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		attrs := []any{
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", sw.status,
+			"duration", time.Since(start).String(),
+			"remote_addr", r.RemoteAddr,
+		}
+		if user, _, ok := parseBasicAuth(r); ok {
+			attrs = append(attrs, "user", user)
+		}
+		if v := r.Header.Get(headerVHost); v != "" {
+			attrs = append(attrs, "vhost", v)
+		}
+		if v := r.Header.Get(headerExchange); v != "" {
+			attrs = append(attrs, "exchange", v)
+		}
+		if v := r.Header.Get(headerRoutingKey); v != "" {
+			attrs = append(attrs, "routing_key", v)
+		}
+		slog.Info("access", attrs...)
+	})
 }
 
 func handlePublish(client *AMQPClient) http.HandlerFunc {
