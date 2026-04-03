@@ -80,6 +80,11 @@ func setupOTelProviders(ctx context.Context) (func(context.Context) error, error
 	)
 	otel.SetTracerProvider(tracerProvider)
 
+	// Report OTel SDK errors as warnings via slog
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		slog.Warn("OpenTelemetry error", "error", err)
+	}))
+
 	if protocol == "" {
 		protocol = "http/protobuf"
 	}
