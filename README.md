@@ -36,7 +36,7 @@ Jsonnet or JSON format:
 
 ```jsonnet
 {
-  rabbitmq_url: "amqp://rabbitmq.internal:5672",
+  amqp_url: "amqp://rabbitmq.internal:5672",
   listen_addr: ":8080",          // default: ":8080"
   shutdown_timeout: "30s",       // default: "30s"
   max_conns_per_user: 2,         // default: 2
@@ -46,7 +46,7 @@ Jsonnet or JSON format:
 
 | Key | Description | Default |
 |---|---|---|
-| `rabbitmq_url` | RabbitMQ server URL (credentials are per-request via Basic auth) | — (required) |
+| `amqp_url` | AMQP server URL (credentials are per-request via Basic auth) | — (required) |
 | `listen_addr` | HTTP listen address | `:8080` |
 | `shutdown_timeout` | Graceful shutdown timeout | `30s` |
 | `max_conns_per_user` | Max pooled AMQP connections per user/password/vhost | `2` |
@@ -59,7 +59,7 @@ Aliases provide custom HTTP endpoints with pre-configured AMQP parameters. Clien
 
 ```jsonnet
 {
-  rabbitmq_url: "amqp://localhost:5672",
+  amqp_url: "amqp://localhost:5672",
   aliases: [
     {
       path: "/api/send-email",

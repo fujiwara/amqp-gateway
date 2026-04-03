@@ -237,8 +237,8 @@ func TestAliasConfigValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{
-				RabbitMQURL: "amqp://localhost:5672",
-				Aliases:     tt.aliases,
+				AMQPURL: "amqp://localhost:5672",
+				Aliases: tt.aliases,
 			}
 			cfg.applyDefaults()
 			err := cfg.validate()

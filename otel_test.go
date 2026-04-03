@@ -9,7 +9,7 @@ import (
 func testNewAMQPClient(url string) *AMQPClient {
 	metrics, _ := newMetrics()
 	tracer := noop.NewTracerProvider().Tracer("")
-	cfg := &Config{RabbitMQURL: url}
+	cfg := &Config{AMQPURL: url}
 	return NewAMQPClient(cfg, tracer, metrics)
 }
 

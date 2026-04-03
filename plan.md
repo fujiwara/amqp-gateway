@@ -101,12 +101,12 @@ Jsonnet/JSON形式のconfigファイルで以下を設定:
 
 ```jsonnet
 {
-  rabbitmq_url: "amqp://localhost:5672",
+  amqp_url: "amqp://localhost:5672",
   listen_addr: ":8080",  // デフォルト ":8080"
 }
 ```
 
-- `rabbitmq_url` — RabbitMQ URL（vhost以外の接続先。vhostはリクエストヘッダーで指定）
+- `amqp_url` — RabbitMQ URL（vhost以外の接続先。vhostはリクエストヘッダーで指定）
 - `listen_addr` — HTTPリッスンアドレス
 
 認証情報はリクエストのBasic認証から取得するため、サーバー側設定には含めない。

@@ -1,3 +1,3 @@
 {
-  rabbitmq_url: "amqp://localhost:5672",
+  amqp_url: "amqp://localhost:5672",
 }

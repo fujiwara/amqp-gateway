@@ -21,7 +21,7 @@ const (
 
 // Config represents the application configuration.
 type Config struct {
-	RabbitMQURL     string        `json:"rabbitmq_url"`
+	AMQPURL         string        `json:"amqp_url"`
 	ListenAddr      string        `json:"listen_addr"`
 	ShutdownTimeout time.Duration `json:"shutdown_timeout"`
 	MaxConnsPerUser int           `json:"max_conns_per_user"`
@@ -88,8 +88,8 @@ func (c *Config) applyDefaults() {
 }
 
 func (c *Config) validate() error {
-	if c.RabbitMQURL == "" {
-		return fmt.Errorf("rabbitmq_url is required")
+	if c.AMQPURL == "" {
+		return fmt.Errorf("amqp_url is required")
 	}
 	paths := make(map[string]bool)
 	for i, a := range c.Aliases {
