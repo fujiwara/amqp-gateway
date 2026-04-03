@@ -6,6 +6,8 @@ For clients that cannot connect to RabbitMQ directly, this gateway provides HTTP
 
 ## Usage
 
+### Server
+
 ```console
 $ amqp-gateway -c config.jsonnet
 ```
@@ -13,17 +15,19 @@ $ amqp-gateway -c config.jsonnet
 ### CLI Options
 
 ```
-Usage: amqp-gateway -c <config> [flags] <command>
+Usage: amqp-gateway [flags] <command>
 
 Flags:
-  -c, --config       Config file path (Jsonnet/JSON) [required, env: AMQP_GATEWAY_CONFIG]
+  -c, --config       Config file path (Jsonnet/JSON) [env: AMQP_GATEWAY_CONFIG]
       --log-level    Log level (debug, info, warn, error) [default: info, env: AMQP_GATEWAY_LOG_LEVEL]
       --version      Show version
 
 Commands:
-  run        Run the gateway server (default)
-  validate   Validate config
-  render     Render config as JSON to stdout
+  run        Run the gateway server (default, requires --config)
+  validate   Validate config (requires --config)
+  render     Render config as JSON to stdout (requires --config)
+  publish    Publish a message via HTTP
+  rpc        Send an RPC request via HTTP
 ```
 
 ### Configuration
@@ -36,6 +40,47 @@ Jsonnet or JSON format:
   listen_addr: ":8080",  // default: ":8080"
 }
 ```
+
+### Client Subcommands
+
+`publish` and `rpc` subcommands act as HTTP clients to the gateway. They do not require `--config`.
+
+```console
+# Publish a message
+$ amqp-gateway publish http://localhost:8080 \
+  -u guest -p guest \
+  --routing-key my.queue \
+  --content-type application/json \
+  --body '{"hello":"world"}'
+
+# Publish from file
+$ amqp-gateway publish http://localhost:8080 \
+  -u guest -p guest \
+  --routing-key my.queue \
+  --body-file message.json
+
+# Publish from stdin
+$ echo '{"hello":"world"}' | amqp-gateway publish http://localhost:8080 \
+  -u guest -p guest \
+  --routing-key my.queue \
+  --body-file -
+
+# RPC call
+$ amqp-gateway rpc http://localhost:8080 \
+  -u guest -p guest \
+  --routing-key my.rpc.key \
+  --timeout 5s \
+  --body '{"request":"data"}'
+
+# Custom AMQP headers
+$ amqp-gateway publish http://localhost:8080 \
+  -u guest -p guest \
+  --routing-key my.queue \
+  -H X-Request-Id=abc123 \
+  --body test
+```
+
+`--body` and `--body-file` are mutually exclusive.
 
 ## API
 
@@ -52,6 +97,8 @@ $ curl -X POST http://localhost:8080/v1/publish \
   -d '{"message": "hello"}'
 # 202 Accepted
 ```
+
+When `Amqp-Mandatory: true` is set and the message cannot be routed to any queue, the server returns `404 Not Found`.
 
 ### POST /v1/rpc
 
@@ -103,7 +150,7 @@ HTTP Basic authentication. Credentials are passed through to RabbitMQ for connec
 | `400` | Validation error (invalid headers) |
 | `401` | RabbitMQ authentication failure |
 | `403` | Exchange permission denied |
-| `404` | Exchange not found |
+| `404` | Exchange not found / message unroutable (mandatory) |
 | `504` | RPC timeout |
 | `503` | RabbitMQ unavailable |
 
