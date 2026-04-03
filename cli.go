@@ -24,11 +24,10 @@ type CLI struct {
 // RunCmd runs the gateway server.
 type RunCmd struct{}
 
-func (cmd *RunCmd) Run(cli *CLI) error {
+func (cmd *RunCmd) Run(ctx context.Context, cli *CLI) error {
 	if cli.Config == "" {
 		return fmt.Errorf("--config is required for run command")
 	}
-	ctx := context.Background()
 	cfg, err := LoadConfig(ctx, cli.Config)
 	if err != nil {
 		return err
@@ -39,11 +38,10 @@ func (cmd *RunCmd) Run(cli *CLI) error {
 // ValidateCmd validates the configuration file.
 type ValidateCmd struct{}
 
-func (cmd *ValidateCmd) Run(cli *CLI) error {
+func (cmd *ValidateCmd) Run(ctx context.Context, cli *CLI) error {
 	if cli.Config == "" {
 		return fmt.Errorf("--config is required for validate command")
 	}
-	ctx := context.Background()
 	_, err := LoadConfig(ctx, cli.Config)
 	if err != nil {
 		return err
@@ -55,11 +53,10 @@ func (cmd *ValidateCmd) Run(cli *CLI) error {
 // RenderCmd renders the configuration as JSON.
 type RenderCmd struct{}
 
-func (cmd *RenderCmd) Run(cli *CLI) error {
+func (cmd *RenderCmd) Run(ctx context.Context, cli *CLI) error {
 	if cli.Config == "" {
 		return fmt.Errorf("--config is required for render command")
 	}
-	ctx := context.Background()
 	out, err := RenderConfig(ctx, cli.Config)
 	if err != nil {
 		return err
@@ -75,6 +72,7 @@ func RunCLI(ctx context.Context) error {
 		kong.Name("amqp-gateway"),
 		kong.Description("AMQP HTTP Gateway - Publish messages to RabbitMQ via HTTP"),
 		kong.Vars{"version": Version},
+		kong.BindTo(ctx, (*context.Context)(nil)),
 	)
 	setupLogger(cli.LogLevel)
 	return kctx.Run(&cli)
