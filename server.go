@@ -162,18 +162,18 @@ func writeAMQPError(w http.ResponseWriter, err error) {
 	if errors.As(err, &amqpErr) {
 		switch amqpErr.Code {
 		case amqp.AccessRefused:
-			http.Error(w, err.Error(), http.StatusForbidden)
+			// AccessRefused at connection level = auth failure (401)
+			// AccessRefused at channel level = permission denied (403)
+			if strings.Contains(err.Error(), "username or password") {
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+			} else {
+				http.Error(w, err.Error(), http.StatusForbidden)
+			}
 			return
 		case amqp.NotFound:
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-	}
-
-	// Check if it's an auth failure (connection error containing "access refused")
-	if strings.Contains(err.Error(), "access refused") || strings.Contains(err.Error(), "ACCESS_REFUSED") {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
-		return
 	}
 
 	slog.Error("AMQP error", "error", err)

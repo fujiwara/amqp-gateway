@@ -27,7 +27,13 @@ func (c *AMQPClient) dialURL(username, password, vhost string) (string, error) {
 		return "", fmt.Errorf("invalid rabbitmq_url: %w", err)
 	}
 	u.User = url.UserPassword(username, password)
-	u.Path = "/" + url.PathEscape(vhost)
+	// AMQP URI spec: default vhost "/" is represented as empty path segment.
+	// amqp091-go does not decode %2F in the path, so we must not escape "/".
+	if vhost == "/" {
+		u.Path = "/"
+	} else {
+		u.Path = "/" + vhost
+	}
 	return u.String(), nil
 }
 
