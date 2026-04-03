@@ -1,8 +1,8 @@
 # amqp-gateway
 
-AMQP HTTP Gateway — Publish messages to RabbitMQ via HTTP.
+AMQP 0-9-1 HTTP Gateway — Publish messages to RabbitMQ via HTTP.
 
-For clients that cannot connect to RabbitMQ directly, this gateway provides HTTP endpoints to publish messages and perform RPC calls.
+For clients that cannot connect to RabbitMQ directly, this gateway provides HTTP endpoints to publish messages and perform RPC calls over AMQP 0-9-1.
 
 ## Usage
 
