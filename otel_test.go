@@ -9,11 +9,10 @@ import (
 func testNewAMQPClient(url string) *AMQPClient {
 	metrics, _ := newMetrics()
 	tracer := noop.NewTracerProvider().Tracer("")
-	return NewAMQPClient(url, tracer, metrics)
+	cfg := &Config{RabbitMQURL: url}
+	return NewAMQPClient(cfg, tracer, metrics)
 }
 
 func testNewServeMux(client *AMQPClient) http.Handler {
-	metrics, _ := newMetrics()
-	tracer := noop.NewTracerProvider().Tracer("")
-	return NewServeMux(client, metrics, tracer)
+	return NewServeMux(client)
 }

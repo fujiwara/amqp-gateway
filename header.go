@@ -28,6 +28,8 @@ const (
 
 // PublishParams holds the parsed AMQP parameters from HTTP headers.
 type PublishParams struct {
+	Username      string
+	Password      string
 	Exchange      string
 	RoutingKey    string
 	VHost         string

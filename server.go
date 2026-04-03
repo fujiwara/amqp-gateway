@@ -29,8 +29,9 @@ func RunServer(ctx context.Context, cfg *Config) error {
 	}
 	tracer := newTracer()
 
-	client := NewAMQPClient(cfg.RabbitMQURL, tracer, metrics)
-	mux := NewServeMux(client, metrics, tracer)
+	client := NewAMQPClient(cfg, tracer, metrics)
+	defer client.Close()
+	mux := NewServeMux(client)
 
 	server := &http.Server{
 		Addr:    cfg.ListenAddr,
@@ -61,13 +62,13 @@ func RunServer(ctx context.Context, cfg *Config) error {
 }
 
 // NewServeMux creates the HTTP handler with all routes.
-func NewServeMux(client *AMQPClient, metrics *Metrics, tracer trace.Tracer) http.Handler {
+func NewServeMux(client *AMQPClient) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/publish", handlePublish(client))
 	mux.HandleFunc("POST /v1/rpc", handleRPC(client))
 	mux.HandleFunc("GET /healthz", handleHealthz())
 	mux.HandleFunc("GET /readyz", handleReadyz(client))
-	return accessLog(mux, metrics, tracer)
+	return accessLog(mux, client.metrics, client.tracer)
 }
 
 // statusResponseWriter wraps http.ResponseWriter to capture the status code.
@@ -140,15 +141,13 @@ func accessLog(next http.Handler, metrics *Metrics, tracer trace.Tracer) http.Ha
 
 func handlePublish(client *AMQPClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		username, password, ok := parseBasicAuth(r)
-		if !ok {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		params, err := ParsePublishParams(r)
+		params, err := parseRequest(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if params == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 
@@ -158,7 +157,7 @@ func handlePublish(client *AMQPClient) http.HandlerFunc {
 			return
 		}
 
-		if err := client.Publish(r.Context(), username, password, params, body); err != nil {
+		if err := client.Publish(r.Context(), params, body); err != nil {
 			writeAMQPError(w, err)
 			return
 		}
@@ -169,15 +168,13 @@ func handlePublish(client *AMQPClient) http.HandlerFunc {
 
 func handleRPC(client *AMQPClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		username, password, ok := parseBasicAuth(r)
-		if !ok {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		params, err := ParsePublishParams(r)
+		params, err := parseRequest(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if params == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 
@@ -187,7 +184,7 @@ func handleRPC(client *AMQPClient) http.HandlerFunc {
 			return
 		}
 
-		msg, err := client.RPC(r.Context(), username, password, params, body)
+		msg, err := client.RPC(r.Context(), params, body)
 		if err != nil {
 			writeAMQPError(w, err)
 			return
@@ -213,6 +210,22 @@ func handleReadyz(client *AMQPClient) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "ok")
 	}
+}
+
+// parseRequest parses Basic auth and AMQP headers from the request.
+// Returns nil params (no error) if auth is missing.
+func parseRequest(r *http.Request) (*PublishParams, error) {
+	username, password, ok := parseBasicAuth(r)
+	if !ok {
+		return nil, nil
+	}
+	params, err := ParsePublishParams(r)
+	if err != nil {
+		return nil, err
+	}
+	params.Username = username
+	params.Password = password
+	return params, nil
 }
 
 func parseBasicAuth(r *http.Request) (string, string, bool) {

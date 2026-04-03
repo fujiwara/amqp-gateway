@@ -17,6 +17,7 @@ type Config struct {
 	RabbitMQURL     string        `json:"rabbitmq_url"`
 	ListenAddr      string        `json:"listen_addr"`
 	ShutdownTimeout time.Duration `json:"shutdown_timeout"`
+	MaxConnsPerUser int           `json:"max_conns_per_user"`
 }
 
 func (c *Config) applyDefaults() {

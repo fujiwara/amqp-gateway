@@ -20,28 +20,57 @@ type AMQPClient struct {
 	baseURL string
 	tracer  trace.Tracer
 	metrics *Metrics
+	pool    *connPool
 }
 
-// NewAMQPClient creates a new AMQPClient with the given base URL.
-func NewAMQPClient(baseURL string, tracer trace.Tracer, metrics *Metrics) *AMQPClient {
-	return &AMQPClient{baseURL: baseURL, tracer: tracer, metrics: metrics}
+// NewAMQPClient creates a new AMQPClient.
+func NewAMQPClient(cfg *Config, tracer trace.Tracer, metrics *Metrics) *AMQPClient {
+	return &AMQPClient{
+		baseURL: cfg.RabbitMQURL,
+		tracer:  tracer,
+		metrics: metrics,
+		pool:    newConnPool(cfg.MaxConnsPerUser),
+	}
+}
+
+// Close closes all pooled connections.
+func (c *AMQPClient) Close() {
+	c.pool.closeAll()
 }
 
 // dialURL builds the connection URL with the given credentials and vhost.
-func (c *AMQPClient) dialURL(username, password, vhost string) (string, error) {
+func (c *AMQPClient) dialURL(params *PublishParams) (string, error) {
 	u, err := url.Parse(c.baseURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid rabbitmq_url: %w", err)
 	}
-	u.User = url.UserPassword(username, password)
+	u.User = url.UserPassword(params.Username, params.Password)
 	// AMQP URI spec: default vhost "/" is represented as empty path segment.
 	// amqp091-go does not decode %2F in the path, so we must not escape "/".
-	if vhost == "/" {
+	if params.VHost == "/" {
 		u.Path = "/"
 	} else {
-		u.Path = "/" + vhost
+		u.Path = "/" + params.VHost
 	}
 	return u.String(), nil
+}
+
+// getConn gets a connection from the pool or dials a new one.
+func (c *AMQPClient) getConn(params *PublishParams) (*amqp.Connection, error) {
+	dialURL, err := c.dialURL(params)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := c.pool.get(dialURL, params.Username, params.VHost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
+	}
+	return conn, nil
+}
+
+// putConn returns a connection to the pool.
+func (c *AMQPClient) putConn(conn *amqp.Connection, params *PublishParams) {
+	c.pool.put(conn, params.Username, params.VHost)
 }
 
 func publishAttrs(params *PublishParams) trace.SpanStartOption {
@@ -52,8 +81,14 @@ func publishAttrs(params *PublishParams) trace.SpanStartOption {
 	)
 }
 
+func (c *AMQPClient) recordError(ctx context.Context, span trace.Span, counter metric.Int64Counter, err error) {
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
+	counter.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+}
+
 // Publish connects to RabbitMQ, publishes a message, and waits for confirm.
-func (c *AMQPClient) Publish(ctx context.Context, username, password string, params *PublishParams, body []byte) error {
+func (c *AMQPClient) Publish(ctx context.Context, params *PublishParams, body []byte) error {
 	ctx, span := c.tracer.Start(ctx, "amqp.publish",
 		trace.WithSpanKind(trace.SpanKindProducer),
 		publishAttrs(params),
@@ -63,39 +98,33 @@ func (c *AMQPClient) Publish(ctx context.Context, username, password string, par
 	// Inject trace context into AMQP headers
 	injectTraceContext(ctx, params.Headers)
 
-	dialURL, err := c.dialURL(username, password, params.VHost)
+	conn, err := c.getConn(params)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.publishTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+		c.recordError(ctx, span, c.metrics.publishTotal, err)
 		return err
 	}
-
-	conn, err := amqp.Dial(dialURL)
-	if err != nil {
-		err = fmt.Errorf("failed to connect to RabbitMQ: %w", err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.publishTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
-		return err
-	}
-	defer conn.Close()
+	returnConn := true
+	defer func() {
+		if returnConn {
+			c.putConn(conn, params)
+		} else {
+			c.pool.discard(conn)
+		}
+	}()
 
 	ch, err := conn.Channel()
 	if err != nil {
+		returnConn = false
 		err = fmt.Errorf("failed to open channel: %w", err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.publishTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+		c.recordError(ctx, span, c.metrics.publishTotal, err)
 		return err
 	}
 	defer ch.Close()
 
 	if err := ch.Confirm(false); err != nil {
+		returnConn = false
 		err = fmt.Errorf("failed to enable confirm mode: %w", err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.publishTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+		c.recordError(ctx, span, c.metrics.publishTotal, err)
 		return err
 	}
 
@@ -121,18 +150,16 @@ func (c *AMQPClient) Publish(ctx context.Context, username, password string, par
 		pub,
 	)
 	if err != nil {
+		returnConn = false
 		err = fmt.Errorf("failed to publish message: %w", err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.publishTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+		c.recordError(ctx, span, c.metrics.publishTotal, err)
 		return err
 	}
 
 	if !confirm.Wait() {
+		returnConn = false
 		err := fmt.Errorf("publish was not confirmed by broker")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.publishTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+		c.recordError(ctx, span, c.metrics.publishTotal, err)
 		return err
 	}
 
@@ -146,9 +173,8 @@ func (c *AMQPClient) Publish(ctx context.Context, username, password string, par
 				Exchange:   ret.Exchange,
 				RoutingKey: ret.RoutingKey,
 			}
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			c.metrics.publishTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+			// Unroutable is not a connection error, keep the connection
+			c.recordError(ctx, span, c.metrics.publishTotal, err)
 			return err
 		}
 	default:
@@ -163,7 +189,7 @@ func (c *AMQPClient) Publish(ctx context.Context, username, password string, par
 }
 
 // RPC connects to RabbitMQ, publishes a message, and waits for a response.
-func (c *AMQPClient) RPC(ctx context.Context, username, password string, params *PublishParams, body []byte) (*amqp.Delivery, error) {
+func (c *AMQPClient) RPC(ctx context.Context, params *PublishParams, body []byte) (*amqp.Delivery, error) {
 	ctx, span := c.tracer.Start(ctx, "amqp.rpc",
 		trace.WithSpanKind(trace.SpanKindClient),
 		publishAttrs(params),
@@ -173,30 +199,25 @@ func (c *AMQPClient) RPC(ctx context.Context, username, password string, params 
 	// Inject trace context into AMQP headers
 	injectTraceContext(ctx, params.Headers)
 
-	dialURL, err := c.dialURL(username, password, params.VHost)
+	conn, err := c.getConn(params)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.rpcTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+		c.recordError(ctx, span, c.metrics.rpcTotal, err)
 		return nil, err
 	}
-
-	conn, err := amqp.Dial(dialURL)
-	if err != nil {
-		err = fmt.Errorf("failed to connect to RabbitMQ: %w", err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.rpcTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
-		return nil, err
-	}
-	defer conn.Close()
+	returnConn := true
+	defer func() {
+		if returnConn {
+			c.putConn(conn, params)
+		} else {
+			c.pool.discard(conn)
+		}
+	}()
 
 	ch, err := conn.Channel()
 	if err != nil {
+		returnConn = false
 		err = fmt.Errorf("failed to open channel: %w", err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.rpcTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+		c.recordError(ctx, span, c.metrics.rpcTotal, err)
 		return nil, err
 	}
 	defer ch.Close()
@@ -211,10 +232,9 @@ func (c *AMQPClient) RPC(ctx context.Context, username, password string, params 
 		nil,
 	)
 	if err != nil {
+		returnConn = false
 		err = fmt.Errorf("failed to declare reply queue: %w", err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.rpcTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+		c.recordError(ctx, span, c.metrics.rpcTotal, err)
 		return nil, err
 	}
 
@@ -228,10 +248,9 @@ func (c *AMQPClient) RPC(ctx context.Context, username, password string, params 
 		nil,
 	)
 	if err != nil {
+		returnConn = false
 		err = fmt.Errorf("failed to consume from reply queue: %w", err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.rpcTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+		c.recordError(ctx, span, c.metrics.rpcTotal, err)
 		return nil, err
 	}
 
@@ -260,10 +279,9 @@ func (c *AMQPClient) RPC(ctx context.Context, username, password string, params 
 		false, // immediate
 		pub,
 	); err != nil {
+		returnConn = false
 		err = fmt.Errorf("failed to publish RPC request: %w", err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.rpcTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+		c.recordError(ctx, span, c.metrics.rpcTotal, err)
 		return nil, err
 	}
 
@@ -283,17 +301,14 @@ func (c *AMQPClient) RPC(ctx context.Context, username, password string, params 
 	case msg, ok := <-msgs:
 		waitSpan.End()
 		if !ok {
+			returnConn = false
 			err := fmt.Errorf("reply queue channel closed unexpectedly")
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			c.metrics.rpcTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+			c.recordError(ctx, span, c.metrics.rpcTotal, err)
 			return nil, err
 		}
 		if msg.CorrelationId != correlationID {
 			err := fmt.Errorf("correlation ID mismatch: expected %s, got %s", correlationID, msg.CorrelationId)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			c.metrics.rpcTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
+			c.recordError(ctx, span, c.metrics.rpcTotal, err)
 			return nil, err
 		}
 		c.metrics.rpcTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "success")))
@@ -301,9 +316,8 @@ func (c *AMQPClient) RPC(ctx context.Context, username, password string, params 
 	case <-timeoutCtx.Done():
 		waitSpan.End()
 		err := &TimeoutError{Timeout: params.Timeout}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		c.metrics.rpcTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "timeout")))
+		// Timeout is not a connection error, keep the connection
+		c.recordError(ctx, span, c.metrics.rpcTotal, err)
 		return nil, err
 	}
 }
