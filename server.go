@@ -31,7 +31,7 @@ func RunServer(ctx context.Context, cfg *Config) error {
 
 	client := NewAMQPClient(cfg, tracer, metrics)
 	defer client.Close()
-	mux := NewServeMux(client)
+	mux := NewServeMux(client, cfg.Aliases)
 
 	server := &http.Server{
 		Addr:    cfg.ListenAddr,
@@ -62,12 +62,15 @@ func RunServer(ctx context.Context, cfg *Config) error {
 }
 
 // NewServeMux creates the HTTP handler with all routes.
-func NewServeMux(client *AMQPClient) http.Handler {
+func NewServeMux(client *AMQPClient, aliases []AliasConfig) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/publish", handlePublish(client))
 	mux.HandleFunc("POST /v1/rpc", handleRPC(client))
 	mux.HandleFunc("GET /healthz", handleHealthz())
 	mux.HandleFunc("GET /readyz", handleReadyz(client))
+	for _, a := range aliases {
+		mux.HandleFunc("POST "+a.Path, handleAlias(client, a))
+	}
 	return accessLog(mux, client.metrics, client.tracer)
 }
 
@@ -191,6 +194,77 @@ func handleRPC(client *AMQPClient) http.HandlerFunc {
 		}
 
 		writeRPCResponse(r.Context(), w, msg)
+	}
+}
+
+func handleAlias(client *AMQPClient, alias AliasConfig) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Start with alias defaults
+		params := alias.toPublishParams()
+
+		// Allow HTTP request headers to override
+		if user, pass, ok := parseBasicAuth(r); ok {
+			params.Username = user
+			params.Password = pass
+		}
+		if params.Username == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		applyHeaderOverrides(r, params)
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "failed to read request body", http.StatusBadRequest)
+			return
+		}
+
+		switch alias.Method {
+		case AliasMethodPublish:
+			if err := client.Publish(r.Context(), params, body); err != nil {
+				writeAMQPError(w, err)
+				return
+			}
+			w.WriteHeader(http.StatusAccepted)
+		case AliasMethodRPC:
+			msg, err := client.RPC(r.Context(), params, body)
+			if err != nil {
+				writeAMQPError(w, err)
+				return
+			}
+			writeRPCResponse(r.Context(), w, msg)
+		}
+	}
+}
+
+// applyHeaderOverrides overrides PublishParams fields from HTTP request headers if present.
+func applyHeaderOverrides(r *http.Request, p *PublishParams) {
+	if v := r.Header.Get(headerExchange); v != "" {
+		p.Exchange = v
+	}
+	if v := r.Header.Get(headerRoutingKey); v != "" {
+		p.RoutingKey = v
+	}
+	if v := r.Header.Get(headerVHost); v != "" {
+		p.VHost = v
+	}
+	if v := r.Header.Get(headerMessageID); v != "" {
+		p.MessageID = v
+	}
+	if v := r.Header.Get(headerCorrelation); v != "" {
+		p.CorrelationID = v
+	}
+	if v := r.Header.Get(headerExpiration); v != "" {
+		p.Expiration = v
+	}
+	if v := r.Header.Get("Content-Type"); v != "" {
+		p.ContentType = v
+	}
+	// Inject any custom AMQP-Header-* from the request
+	for key, values := range r.Header {
+		if headerName, ok := strings.CutPrefix(key, headerCustomPrefix); ok && headerName != "" {
+			p.Headers[headerName] = values[0]
+		}
 	}
 }
 

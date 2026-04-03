@@ -14,5 +14,5 @@ func testNewAMQPClient(url string) *AMQPClient {
 }
 
 func testNewServeMux(client *AMQPClient) http.Handler {
-	return NewServeMux(client)
+	return NewServeMux(client, nil)
 }

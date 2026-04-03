@@ -8,9 +8,16 @@ import (
 	"time"
 
 	armed "github.com/fujiwara/jsonnet-armed"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const defaultShutdownTimeout = 30 * time.Second
+const (
+	defaultShutdownTimeout = 30 * time.Second
+
+	// AliasMethodPublish and AliasMethodRPC are the allowed values for AliasConfig.Method.
+	AliasMethodPublish = "publish"
+	AliasMethodRPC     = "rpc"
+)
 
 // Config represents the application configuration.
 type Config struct {
@@ -19,6 +26,56 @@ type Config struct {
 	ShutdownTimeout time.Duration `json:"shutdown_timeout"`
 	MaxConnsPerUser int           `json:"max_conns_per_user"`
 	ConnTTL         time.Duration `json:"conn_ttl"`
+	Aliases         []AliasConfig `json:"aliases"`
+}
+
+// AliasConfig defines a custom HTTP path that maps to a publish or rpc call
+// with pre-configured AMQP parameters.
+type AliasConfig struct {
+	Path   string `json:"path"`
+	Method string `json:"method"` // "publish" or "rpc"
+
+	// AMQP parameters — same fields as PublishParams.
+	// HTTP request headers can override these if provided.
+	Username     string            `json:"username"`
+	Password     string            `json:"password"`
+	Exchange     string            `json:"exchange"`
+	RoutingKey   string            `json:"routing_key"`
+	VHost        string            `json:"vhost"`
+	DeliveryMode *uint8            `json:"delivery_mode"`
+	ContentType  string            `json:"content_type"`
+	Mandatory    bool              `json:"mandatory"`
+	Timeout      time.Duration     `json:"timeout"`
+	Headers      map[string]string `json:"headers"`
+}
+
+// toPublishParams converts AliasConfig to PublishParams as defaults.
+func (a *AliasConfig) toPublishParams() *PublishParams {
+	p := &PublishParams{
+		Username:     a.Username,
+		Password:     a.Password,
+		Exchange:     a.Exchange,
+		RoutingKey:   a.RoutingKey,
+		VHost:        a.VHost,
+		ContentType:  a.ContentType,
+		Mandatory:    a.Mandatory,
+		Timeout:      a.Timeout,
+		DeliveryMode: defaultDeliveryMode,
+		Headers:      amqp.Table{},
+	}
+	if p.VHost == "" {
+		p.VHost = defaultVHost
+	}
+	if p.Timeout == 0 {
+		p.Timeout = defaultTimeout * time.Millisecond
+	}
+	if a.DeliveryMode != nil {
+		p.DeliveryMode = *a.DeliveryMode
+	}
+	for k, v := range a.Headers {
+		p.Headers[k] = v
+	}
+	return p
 }
 
 func (c *Config) applyDefaults() {
@@ -33,6 +90,22 @@ func (c *Config) applyDefaults() {
 func (c *Config) validate() error {
 	if c.RabbitMQURL == "" {
 		return fmt.Errorf("rabbitmq_url is required")
+	}
+	paths := make(map[string]bool)
+	for i, a := range c.Aliases {
+		if a.Path == "" {
+			return fmt.Errorf("aliases[%d]: path is required", i)
+		}
+		if a.Method != AliasMethodPublish && a.Method != AliasMethodRPC {
+			return fmt.Errorf("aliases[%d]: method must be \"publish\" or \"rpc\"", i)
+		}
+		if (a.Username == "") != (a.Password == "") {
+			return fmt.Errorf("aliases[%d]: username and password must both be set or both be empty", i)
+		}
+		if paths[a.Path] {
+			return fmt.Errorf("aliases[%d]: duplicate path %q", i, a.Path)
+		}
+		paths[a.Path] = true
 	}
 	return nil
 }

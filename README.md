@@ -39,8 +39,80 @@ Jsonnet or JSON format:
   rabbitmq_url: "amqp://rabbitmq.internal:5672",
   listen_addr: ":8080",          // default: ":8080"
   shutdown_timeout: "30s",       // default: "30s"
+  max_conns_per_user: 2,         // default: 2
+  conn_ttl: "5m",                // default: "5m"
 }
 ```
+
+| Key | Description | Default |
+|---|---|---|
+| `rabbitmq_url` | RabbitMQ server URL (credentials are per-request via Basic auth) | — (required) |
+| `listen_addr` | HTTP listen address | `:8080` |
+| `shutdown_timeout` | Graceful shutdown timeout | `30s` |
+| `max_conns_per_user` | Max pooled AMQP connections per user/password/vhost | `2` |
+| `conn_ttl` | Max lifetime of a pooled connection before it is discarded | `5m` |
+| `aliases` | List of alias endpoint definitions (see below) | `[]` |
+
+### Aliases
+
+Aliases provide custom HTTP endpoints with pre-configured AMQP parameters. Clients can call these without knowing AMQP details or providing credentials.
+
+```jsonnet
+{
+  rabbitmq_url: "amqp://localhost:5672",
+  aliases: [
+    {
+      path: "/api/send-email",
+      method: "publish",
+      username: "app-user",
+      password: "app-pass",
+      exchange: "notifications",
+      routing_key: "email.send",
+      content_type: "application/json",
+    },
+    {
+      path: "/api/user-lookup",
+      method: "rpc",
+      username: "app-user",
+      password: "app-pass",
+      routing_key: "user.lookup",
+      timeout: "10s",
+    },
+  ],
+}
+```
+
+```console
+# No auth needed — alias provides credentials
+$ curl -X POST http://localhost:8080/api/send-email \
+  -d '{"to": "user@example.com", "subject": "Hello"}'
+# 202 Accepted
+
+# RPC via alias
+$ curl -X POST http://localhost:8080/api/user-lookup \
+  -d '{"user_id": "123"}'
+# 200 OK with response body
+```
+
+Alias fields:
+
+| Field | Description | Required |
+|---|---|---|
+| `path` | HTTP path (e.g. `/api/send`) | yes |
+| `method` | `"publish"` or `"rpc"` | yes |
+| `username` | RabbitMQ username (if omitted, requires Basic auth in request) | no |
+| `password` | RabbitMQ password (must be set together with username) | no |
+| `exchange` | AMQP exchange | no |
+| `routing_key` | AMQP routing key | no |
+| `vhost` | AMQP vhost (default: `/`) | no |
+| `delivery_mode` | 1=transient, 2=persistent (default: 2) | no |
+| `content_type` | Default Content-Type | no |
+| `mandatory` | Mandatory flag | no |
+| `timeout` | RPC timeout (default: `30s`) | no |
+| `headers` | Default AMQP headers (key-value map) | no |
+
+HTTP request headers (`Amqp-*`, `Content-Type`) can override alias defaults.
+If the client provides `Authorization: Basic ...`, it overrides the alias credentials.
 
 ### Client Subcommands
 
