@@ -60,6 +60,9 @@ func (c *AMQPClient) Publish(ctx context.Context, username, password string, par
 		return fmt.Errorf("failed to enable confirm mode: %w", err)
 	}
 
+	// Listen for basic.return (unroutable messages when mandatory=true)
+	returnCh := ch.NotifyReturn(make(chan amqp.Return, 1))
+
 	pub := amqp.Publishing{
 		DeliveryMode:  params.DeliveryMode,
 		ContentType:   params.ContentType,
@@ -84,6 +87,21 @@ func (c *AMQPClient) Publish(ctx context.Context, username, password string, par
 
 	if !confirm.Wait() {
 		return fmt.Errorf("publish was not confirmed by broker")
+	}
+
+	// Check if the message was returned (no matching queue)
+	select {
+	case ret, ok := <-returnCh:
+		if ok {
+			return &UnroutableError{
+				ReplyCode:  ret.ReplyCode,
+				ReplyText:  ret.ReplyText,
+				Exchange:   ret.Exchange,
+				RoutingKey: ret.RoutingKey,
+			}
+		}
+	default:
+		// No return, message was routed successfully
 	}
 
 	slog.Debug("message published",
@@ -208,6 +226,19 @@ type TimeoutError struct {
 
 func (e *TimeoutError) Error() string {
 	return fmt.Sprintf("RPC timeout after %s", e.Timeout)
+}
+
+// UnroutableError represents a message that could not be routed (basic.return).
+type UnroutableError struct {
+	ReplyCode  uint16
+	ReplyText  string
+	Exchange   string
+	RoutingKey string
+}
+
+func (e *UnroutableError) Error() string {
+	return fmt.Sprintf("message unroutable: %d %s (exchange=%q, routing_key=%q)",
+		e.ReplyCode, e.ReplyText, e.Exchange, e.RoutingKey)
 }
 
 func generateID() string {

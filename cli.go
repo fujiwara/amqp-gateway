@@ -11,11 +11,13 @@ import (
 
 // CLI represents the command-line interface.
 type CLI struct {
-	Config   string           `kong:"required,short='c',env='AMQP_GATEWAY_CONFIG',help='Config file path (Jsonnet/JSON)'"`
+	Config   string           `kong:"short='c',env='AMQP_GATEWAY_CONFIG',help='Config file path (Jsonnet/JSON)'"`
 	LogLevel string           `kong:"default='info',enum='debug,info,warn,error',env='AMQP_GATEWAY_LOG_LEVEL',help='Log level'"`
 	Run      RunCmd           `cmd:"" default:"1" help:"Run the gateway server"`
 	Validate ValidateCmd      `cmd:"" help:"Validate config"`
 	Render   RenderCmd        `cmd:"" help:"Render config as JSON to stdout"`
+	Publish  ClientPublishCmd `cmd:"" help:"Publish a message via HTTP"`
+	RPC      ClientRPCCmd     `cmd:"" help:"Send an RPC request via HTTP"`
 	Version  kong.VersionFlag `help:"Show version"`
 }
 
@@ -23,6 +25,9 @@ type CLI struct {
 type RunCmd struct{}
 
 func (cmd *RunCmd) Run(cli *CLI) error {
+	if cli.Config == "" {
+		return fmt.Errorf("--config is required for run command")
+	}
 	ctx := context.Background()
 	cfg, err := LoadConfig(ctx, cli.Config)
 	if err != nil {
@@ -35,6 +40,9 @@ func (cmd *RunCmd) Run(cli *CLI) error {
 type ValidateCmd struct{}
 
 func (cmd *ValidateCmd) Run(cli *CLI) error {
+	if cli.Config == "" {
+		return fmt.Errorf("--config is required for validate command")
+	}
 	ctx := context.Background()
 	_, err := LoadConfig(ctx, cli.Config)
 	if err != nil {
@@ -48,6 +56,9 @@ func (cmd *ValidateCmd) Run(cli *CLI) error {
 type RenderCmd struct{}
 
 func (cmd *RenderCmd) Run(cli *CLI) error {
+	if cli.Config == "" {
+		return fmt.Errorf("--config is required for render command")
+	}
 	ctx := context.Background()
 	out, err := RenderConfig(ctx, cli.Config)
 	if err != nil {

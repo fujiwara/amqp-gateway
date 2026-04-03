@@ -158,6 +158,12 @@ func writeAMQPError(w http.ResponseWriter, err error) {
 		return
 	}
 
+	var unroutableErr *UnroutableError
+	if errors.As(err, &unroutableErr) {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
 	var amqpErr *amqp.Error
 	if errors.As(err, &amqpErr) {
 		switch amqpErr.Code {

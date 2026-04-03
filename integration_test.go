@@ -126,6 +126,25 @@ func TestIntegrationPublish(t *testing.T) {
 	}
 }
 
+func TestIntegrationPublishMandatoryUnroutable(t *testing.T) {
+	rmqURL := requireRabbitMQ(t)
+
+	client := NewAMQPClient(rmqURL)
+	mux := NewServeMux(client)
+
+	// Publish with mandatory=true to a non-existent queue
+	req := httptest.NewRequest("POST", "/v1/publish", strings.NewReader("test"))
+	req.Header.Set("Authorization", testBasicAuth("guest", "guest"))
+	req.Header.Set("Amqp-Routing-Key", fmt.Sprintf("nonexistent-queue-%d", time.Now().UnixNano()))
+	req.Header.Set("Amqp-Mandatory", "true")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("mandatory unroutable status: got %d, want %d, body: %s", w.Code, http.StatusNotFound, w.Body.String())
+	}
+}
+
 func TestIntegrationPublishBadAuth(t *testing.T) {
 	requireRabbitMQ(t)
 
