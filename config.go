@@ -5,19 +5,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	armed "github.com/fujiwara/jsonnet-armed"
 )
 
+const defaultShutdownTimeout = 30 * time.Second
+
 // Config represents the application configuration.
 type Config struct {
-	RabbitMQURL string `json:"rabbitmq_url"`
-	ListenAddr  string `json:"listen_addr"`
+	RabbitMQURL     string        `json:"rabbitmq_url"`
+	ListenAddr      string        `json:"listen_addr"`
+	ShutdownTimeout time.Duration `json:"shutdown_timeout"`
 }
 
 func (c *Config) applyDefaults() {
 	if c.ListenAddr == "" {
 		c.ListenAddr = ":8080"
+	}
+	if c.ShutdownTimeout == 0 {
+		c.ShutdownTimeout = defaultShutdownTimeout
 	}
 }
 

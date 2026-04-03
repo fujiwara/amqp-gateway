@@ -40,7 +40,9 @@ func RunServer(ctx context.Context, cfg *Config) error {
 	select {
 	case <-ctx.Done():
 		slog.Info("shutting down server")
-		return server.Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
 	case err := <-errCh:
 		return err
 	}
