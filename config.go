@@ -18,6 +18,7 @@ type Config struct {
 	ListenAddr      string        `json:"listen_addr"`
 	ShutdownTimeout time.Duration `json:"shutdown_timeout"`
 	MaxConnsPerUser int           `json:"max_conns_per_user"`
+	ConnTTL         time.Duration `json:"conn_ttl"`
 }
 
 func (c *Config) applyDefaults() {

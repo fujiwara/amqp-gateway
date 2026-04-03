@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"time"
 
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -29,7 +30,7 @@ func NewAMQPClient(cfg *Config, tracer trace.Tracer, metrics *Metrics) *AMQPClie
 		baseURL: cfg.RabbitMQURL,
 		tracer:  tracer,
 		metrics: metrics,
-		pool:    newConnPool(cfg.MaxConnsPerUser),
+		pool:    newConnPool(cfg.MaxConnsPerUser, cfg.ConnTTL),
 	}
 }
 
@@ -55,8 +56,14 @@ func (c *AMQPClient) dialURL(params *PublishParams) (string, error) {
 	return u.String(), nil
 }
 
+// connHandle holds a connection and its creation time for pool return.
+type connHandle struct {
+	conn      *amqp.Connection
+	createdAt time.Time
+}
+
 // getConn gets a connection from the pool or dials a new one.
-func (c *AMQPClient) getConn(params *PublishParams) (*amqp.Connection, error) {
+func (c *AMQPClient) getConn(params *PublishParams) (*connHandle, error) {
 	dialURL, err := c.dialURL(params)
 	if err != nil {
 		return nil, err
@@ -65,12 +72,12 @@ func (c *AMQPClient) getConn(params *PublishParams) (*amqp.Connection, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
-	return conn, nil
+	return &connHandle{conn: conn, createdAt: time.Now()}, nil
 }
 
 // putConn returns a connection to the pool.
-func (c *AMQPClient) putConn(conn *amqp.Connection, params *PublishParams) {
-	c.pool.put(conn, params.Username, params.Password, params.VHost)
+func (c *AMQPClient) putConn(h *connHandle, params *PublishParams) {
+	c.pool.put(h.conn, params.Username, params.Password, params.VHost, h.createdAt)
 }
 
 func publishAttrs(params *PublishParams) trace.SpanStartOption {
@@ -98,7 +105,7 @@ func (c *AMQPClient) Publish(ctx context.Context, params *PublishParams, body []
 	// Inject trace context into AMQP headers
 	injectTraceContext(ctx, params.Headers)
 
-	conn, err := c.getConn(params)
+	h, err := c.getConn(params)
 	if err != nil {
 		c.recordError(ctx, span, c.metrics.publishTotal, err)
 		return err
@@ -106,13 +113,13 @@ func (c *AMQPClient) Publish(ctx context.Context, params *PublishParams, body []
 	returnConn := true
 	defer func() {
 		if returnConn {
-			c.putConn(conn, params)
+			c.putConn(h, params)
 		} else {
-			c.pool.discard(conn)
+			c.pool.discard(h.conn)
 		}
 	}()
 
-	ch, err := conn.Channel()
+	ch, err := h.conn.Channel()
 	if err != nil {
 		returnConn = false
 		err = fmt.Errorf("failed to open channel: %w", err)
@@ -199,7 +206,7 @@ func (c *AMQPClient) RPC(ctx context.Context, params *PublishParams, body []byte
 	// Inject trace context into AMQP headers
 	injectTraceContext(ctx, params.Headers)
 
-	conn, err := c.getConn(params)
+	h, err := c.getConn(params)
 	if err != nil {
 		c.recordError(ctx, span, c.metrics.rpcTotal, err)
 		return nil, err
@@ -207,13 +214,13 @@ func (c *AMQPClient) RPC(ctx context.Context, params *PublishParams, body []byte
 	returnConn := true
 	defer func() {
 		if returnConn {
-			c.putConn(conn, params)
+			c.putConn(h, params)
 		} else {
-			c.pool.discard(conn)
+			c.pool.discard(h.conn)
 		}
 	}()
 
-	ch, err := conn.Channel()
+	ch, err := h.conn.Channel()
 	if err != nil {
 		returnConn = false
 		err = fmt.Errorf("failed to open channel: %w", err)

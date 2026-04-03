@@ -12,7 +12,7 @@ import (
 func TestConnPoolGetPut(t *testing.T) {
 	rmqURL := requireRabbitMQ(t)
 
-	pool := newConnPool(2)
+	pool := newConnPool(2, 0)
 	defer pool.closeAll()
 
 	conn1, err := pool.get(rmqURL, "guest", "guest", "/")
@@ -23,7 +23,7 @@ func TestConnPoolGetPut(t *testing.T) {
 		t.Fatal("conn1 should be open")
 	}
 
-	pool.put(conn1, "guest", "guest", "/")
+	pool.put(conn1, "guest", "guest", "/", time.Now())
 
 	// Should reuse the pooled connection
 	conn2, err := pool.get(rmqURL, "guest", "guest", "/")
@@ -34,13 +34,13 @@ func TestConnPoolGetPut(t *testing.T) {
 		t.Error("expected to reuse the same connection")
 	}
 
-	pool.put(conn2, "guest", "guest", "/")
+	pool.put(conn2, "guest", "guest", "/", time.Now())
 }
 
 func TestConnPoolMaxConns(t *testing.T) {
 	rmqURL := requireRabbitMQ(t)
 
-	pool := newConnPool(1)
+	pool := newConnPool(1, 0)
 	defer pool.closeAll()
 
 	conn1, err := pool.get(rmqURL, "guest", "guest", "/")
@@ -52,8 +52,8 @@ func TestConnPoolMaxConns(t *testing.T) {
 		t.Fatalf("get conn2: %v", err)
 	}
 
-	pool.put(conn1, "guest", "guest", "/")
-	pool.put(conn2, "guest", "guest", "/") // pool full, conn2 should be closed
+	pool.put(conn1, "guest", "guest", "/", time.Now())
+	pool.put(conn2, "guest", "guest", "/", time.Now()) // pool full, conn2 should be closed
 
 	if !conn2.IsClosed() {
 		t.Error("conn2 should be closed (pool full)")
@@ -66,7 +66,7 @@ func TestConnPoolMaxConns(t *testing.T) {
 func TestConnPoolStaleConnection(t *testing.T) {
 	rmqURL := requireRabbitMQ(t)
 
-	pool := newConnPool(2)
+	pool := newConnPool(2, 0)
 	defer pool.closeAll()
 
 	conn, err := pool.get(rmqURL, "guest", "guest", "/")
@@ -75,7 +75,7 @@ func TestConnPoolStaleConnection(t *testing.T) {
 	}
 
 	conn.Close() // simulate server-side disconnect
-	pool.put(conn, "guest", "guest", "/")
+	pool.put(conn, "guest", "guest", "/", time.Now())
 
 	// Should skip stale and dial new
 	conn2, err := pool.get(rmqURL, "guest", "guest", "/")
@@ -85,24 +85,56 @@ func TestConnPoolStaleConnection(t *testing.T) {
 	if conn2.IsClosed() {
 		t.Error("new connection should be open")
 	}
-	pool.put(conn2, "guest", "guest", "/")
+	pool.put(conn2, "guest", "guest", "/", time.Now())
 }
 
 func TestConnPoolCloseAll(t *testing.T) {
 	rmqURL := requireRabbitMQ(t)
 
-	pool := newConnPool(2)
+	pool := newConnPool(2, 0)
 
 	conn, err := pool.get(rmqURL, "guest", "guest", "/")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	pool.put(conn, "guest", "guest", "/")
+	pool.put(conn, "guest", "guest", "/", time.Now())
 	pool.closeAll()
 
 	if !conn.IsClosed() {
 		t.Error("connection should be closed after closeAll")
 	}
+}
+
+func TestConnPoolTTL(t *testing.T) {
+	rmqURL := requireRabbitMQ(t)
+
+	pool := newConnPool(2, 100*time.Millisecond) // 100ms TTL
+	defer pool.closeAll()
+
+	conn, err := pool.get(rmqURL, "guest", "guest", "/")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	createdAt := time.Now()
+	pool.put(conn, "guest", "guest", "/", createdAt)
+
+	// Wait for TTL to expire
+	time.Sleep(150 * time.Millisecond)
+
+	// Should dial a new connection since the pooled one is expired
+	conn2, err := pool.get(rmqURL, "guest", "guest", "/")
+	if err != nil {
+		t.Fatalf("get after TTL: %v", err)
+	}
+	if conn == conn2 {
+		t.Error("expected a new connection after TTL expiry")
+	}
+	// Original connection should have been closed by pool
+	if !conn.IsClosed() {
+		t.Error("expired connection should be closed")
+	}
+
+	pool.put(conn2, "guest", "guest", "/", time.Now())
 }
 
 func TestIntegrationPoolReuse(t *testing.T) {

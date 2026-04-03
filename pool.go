@@ -4,26 +4,41 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const defaultMaxConnsPerKey = 2
+const (
+	defaultMaxConnsPerKey = 2
+	defaultConnTTL        = 5 * time.Minute
+)
 
-// connPool manages a pool of AMQP connections keyed by user:vhost.
+// pooledConn wraps an AMQP connection with its creation time.
+type pooledConn struct {
+	conn      *amqp.Connection
+	createdAt time.Time
+}
+
+// connPool manages a pool of AMQP connections keyed by user:password:vhost.
 type connPool struct {
 	mu       sync.Mutex
 	maxConns int
-	conns    map[string][]*amqp.Connection
+	ttl      time.Duration
+	conns    map[string][]pooledConn
 }
 
-func newConnPool(maxConns int) *connPool {
+func newConnPool(maxConns int, ttl time.Duration) *connPool {
 	if maxConns <= 0 {
 		maxConns = defaultMaxConnsPerKey
 	}
+	if ttl <= 0 {
+		ttl = defaultConnTTL
+	}
 	return &connPool{
 		maxConns: maxConns,
-		conns:    make(map[string][]*amqp.Connection),
+		ttl:      ttl,
+		conns:    make(map[string][]pooledConn),
 	}
 }
 
@@ -32,28 +47,31 @@ func poolKey(username, password, vhost string) string {
 }
 
 // get retrieves an idle connection from the pool, or dials a new one.
-// The returned connection may be closed by the server; callers should
-// handle errors and discard the connection without returning it.
 func (p *connPool) get(dialURL, username, password, vhost string) (*amqp.Connection, error) {
 	key := poolKey(username, password, vhost)
+	now := time.Now()
 
 	p.mu.Lock()
 	for len(p.conns[key]) > 0 {
-		// Pop from the end
 		n := len(p.conns[key])
-		conn := p.conns[key][n-1]
+		pc := p.conns[key][n-1]
 		p.conns[key] = p.conns[key][:n-1]
 		p.mu.Unlock()
 
-		// Check if the connection is still alive
-		if !conn.IsClosed() {
-			slog.Debug("reusing pooled connection", "key", key)
-			return conn, nil
+		if pc.conn.IsClosed() {
+			slog.Debug("discarding closed pooled connection", "key", key)
+			p.mu.Lock()
+			continue
 		}
-		// Connection is stale, discard and try next
-		slog.Debug("discarding stale pooled connection", "key", key)
+		if now.Sub(pc.createdAt) > p.ttl {
+			slog.Debug("discarding expired pooled connection", "key", key, "age", now.Sub(pc.createdAt).String())
+			pc.conn.Close()
+			p.mu.Lock()
+			continue
+		}
 
-		p.mu.Lock()
+		slog.Debug("reusing pooled connection", "key", key)
+		return pc.conn, nil
 	}
 	p.mu.Unlock()
 
@@ -61,10 +79,14 @@ func (p *connPool) get(dialURL, username, password, vhost string) (*amqp.Connect
 	return amqp.Dial(dialURL)
 }
 
-// put returns a connection to the pool. If the pool is full or
-// the connection is closed, the connection is closed and discarded.
-func (p *connPool) put(conn *amqp.Connection, username, password, vhost string) {
+// put returns a connection to the pool. If the pool is full,
+// the connection is expired, or closed, it is discarded.
+func (p *connPool) put(conn *amqp.Connection, username, password, vhost string, createdAt time.Time) {
 	if conn.IsClosed() {
+		return
+	}
+	if time.Since(createdAt) > p.ttl {
+		conn.Close()
 		return
 	}
 
@@ -76,11 +98,10 @@ func (p *connPool) put(conn *amqp.Connection, username, password, vhost string) 
 		conn.Close()
 		return
 	}
-	p.conns[key] = append(p.conns[key], conn)
+	p.conns[key] = append(p.conns[key], pooledConn{conn: conn, createdAt: createdAt})
 }
 
 // discard closes a connection without returning it to the pool.
-// Use this when an error occurred and the connection may be broken.
 func (p *connPool) discard(conn *amqp.Connection) {
 	if conn != nil {
 		conn.Close()
@@ -92,8 +113,8 @@ func (p *connPool) closeAll() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for key, conns := range p.conns {
-		for _, conn := range conns {
-			conn.Close()
+		for _, pc := range conns {
+			pc.conn.Close()
 		}
 		delete(p.conns, key)
 	}
