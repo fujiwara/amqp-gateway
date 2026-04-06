@@ -24,9 +24,6 @@ func TestParsePublishParams(t *testing.T) {
 				if p.DeliveryMode != 2 {
 					t.Errorf("DeliveryMode: got %d, want 2", p.DeliveryMode)
 				}
-				if p.Mandatory {
-					t.Error("Mandatory: got true, want false")
-				}
 				if p.Timeout != 30*time.Second {
 					t.Errorf("Timeout: got %v, want 30s", p.Timeout)
 				}
@@ -42,7 +39,6 @@ func TestParsePublishParams(t *testing.T) {
 				"Amqp-Message-Id":     "msg-123",
 				"Amqp-Correlation-Id": "corr-456",
 				"Amqp-Expiration":     "60000",
-				"Amqp-Mandatory":      "true",
 				"Amqp-Timeout":        "5000",
 				"Content-Type":        "application/json",
 			},
@@ -68,9 +64,6 @@ func TestParsePublishParams(t *testing.T) {
 				}
 				if p.Expiration != "60000" {
 					t.Errorf("Expiration: got %q", p.Expiration)
-				}
-				if !p.Mandatory {
-					t.Error("Mandatory: got false, want true")
 				}
 				if p.Timeout != 5*time.Second {
 					t.Errorf("Timeout: got %v, want 5s", p.Timeout)
@@ -99,11 +92,6 @@ func TestParsePublishParams(t *testing.T) {
 		{
 			name:    "invalid delivery mode",
 			headers: map[string]string{"Amqp-Delivery-Mode": "abc"},
-			wantErr: true,
-		},
-		{
-			name:    "invalid mandatory",
-			headers: map[string]string{"Amqp-Mandatory": "abc"},
 			wantErr: true,
 		},
 		{

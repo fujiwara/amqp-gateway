@@ -17,7 +17,6 @@ const (
 	headerMessageID    = "Amqp-Message-Id"
 	headerCorrelation  = "Amqp-Correlation-Id"
 	headerExpiration   = "Amqp-Expiration"
-	headerMandatory    = "Amqp-Mandatory"
 	headerTimeout      = "Amqp-Timeout"
 	headerCustomPrefix = "Amqp-Header-"
 
@@ -33,7 +32,6 @@ type PublishParams struct {
 	Exchange      string
 	RoutingKey    string
 	VHost         string
-	Mandatory     bool
 	DeliveryMode  uint8
 	MessageID     string
 	CorrelationID string
@@ -67,14 +65,6 @@ func ParsePublishParams(r *http.Request) (*PublishParams, error) {
 			return nil, &ValidationError{Field: headerDeliveryMode, Message: "must be a valid integer"}
 		}
 		p.DeliveryMode = uint8(mode)
-	}
-
-	if v := r.Header.Get(headerMandatory); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return nil, &ValidationError{Field: headerMandatory, Message: "must be true or false"}
-		}
-		p.Mandatory = b
 	}
 
 	// Parse timeout (default 30000ms)

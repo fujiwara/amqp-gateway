@@ -44,7 +44,6 @@ type AliasConfig struct {
 	VHost        string            `json:"vhost"`
 	DeliveryMode *uint8            `json:"delivery_mode"`
 	ContentType  string            `json:"content_type"`
-	Mandatory    bool              `json:"mandatory"`
 	Timeout      time.Duration     `json:"timeout"`
 	Headers      map[string]string `json:"headers"`
 }
@@ -58,7 +57,6 @@ func (a *AliasConfig) toPublishParams() *PublishParams {
 		RoutingKey:   a.RoutingKey,
 		VHost:        a.VHost,
 		ContentType:  a.ContentType,
-		Mandatory:    a.Mandatory,
 		Timeout:      a.Timeout,
 		DeliveryMode: defaultDeliveryMode,
 		Headers:      amqp.Table{},

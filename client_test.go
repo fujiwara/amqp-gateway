@@ -19,7 +19,6 @@ func TestClientOptionsBuildRequest(t *testing.T) {
 		MessageID:     "msg-1",
 		CorrelationID: "corr-1",
 		Expiration:    "60000",
-		Mandatory:     true,
 		ContentType:   "application/json",
 		Timeout:       5 * time.Second,
 		Headers:       map[string]string{"X-Foo": "bar"},
@@ -47,7 +46,6 @@ func TestClientOptionsBuildRequest(t *testing.T) {
 		"Amqp-Message-Id":     "msg-1",
 		"Amqp-Correlation-Id": "corr-1",
 		"Amqp-Expiration":     "60000",
-		"Amqp-Mandatory":      "true",
 		"Content-Type":        "application/json",
 		"Amqp-Timeout":        "5000", // 5s → 5000ms
 		"Amqp-Header-X-Foo":   "bar",
