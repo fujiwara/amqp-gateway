@@ -118,7 +118,6 @@ Alias fields:
 | `vhost` | AMQP vhost (default: `/`) | no |
 | `delivery_mode` | 1=transient, 2=persistent (default: 2) | no |
 | `content_type` | Default Content-Type | no |
-| `mandatory` | Mandatory flag | no |
 | `timeout` | RPC timeout (default: `30s`) | no |
 | `headers` | Default AMQP headers (key-value map) | no |
 
@@ -182,8 +181,6 @@ $ curl -X POST http://localhost:8080/v1/publish \
 # 202 Accepted
 ```
 
-When `Amqp-Mandatory: true` is set and the message cannot be routed to any queue, the server returns `404 Not Found`.
-
 ### POST /v1/rpc
 
 RPC call — publishes a message and waits for a response on a temporary queue.
@@ -218,7 +215,6 @@ RabbitMQ connectivity check. Returns `200 OK` if connected, `503` otherwise.
 | `Amqp-Message-Id` | message_id | — |
 | `Amqp-Correlation-Id` | correlation_id | auto-generated for RPC |
 | `Amqp-Expiration` | expiration | — |
-| `Amqp-Mandatory` | mandatory flag | `false` |
 | `Amqp-Timeout` | — | `30000` (RPC only, ms) |
 | `Amqp-Header-*` | headers table | — |
 | `Content-Type` | content_type | — |
@@ -234,7 +230,7 @@ HTTP Basic authentication. Credentials are passed through to RabbitMQ for connec
 | `400` | Validation error (invalid headers) |
 | `401` | RabbitMQ authentication failure |
 | `403` | Exchange permission denied |
-| `404` | Exchange not found / message unroutable (mandatory) |
+| `404` | Exchange not found |
 | `504` | RPC timeout |
 | `503` | RabbitMQ unavailable |
 

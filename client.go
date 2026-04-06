@@ -22,7 +22,6 @@ type ClientOptions struct {
 	MessageID     string            `kong:"name='message-id',help='AMQP message ID'"`
 	CorrelationID string            `kong:"name='correlation-id',help='AMQP correlation ID'"`
 	Expiration    string            `kong:"name='expiration',help='AMQP expiration'"`
-	Mandatory     bool              `kong:"name='mandatory',help='AMQP mandatory flag'"`
 	ContentType   string            `kong:"name='content-type',help='Content-Type header'"`
 	Timeout       time.Duration     `kong:"name='timeout',help='RPC timeout (e.g. 5s, 500ms)'"`
 	Headers       map[string]string `kong:"name='header',short='H',help='Custom AMQP headers (key=value)'"`
@@ -65,9 +64,6 @@ func (o *ClientOptions) buildRequest(method, path string) (*http.Request, error)
 	}
 	if o.Expiration != "" {
 		req.Header.Set("Amqp-Expiration", o.Expiration)
-	}
-	if o.Mandatory {
-		req.Header.Set("Amqp-Mandatory", "true")
 	}
 	if o.ContentType != "" {
 		req.Header.Set("Content-Type", o.ContentType)

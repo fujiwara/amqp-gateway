@@ -106,7 +106,7 @@ func (c *AMQPClient) recordError(ctx context.Context, span trace.Span, counter m
 	counter.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "error")))
 }
 
-// Publish connects to RabbitMQ, publishes a message, and waits for confirm.
+// Publish connects to RabbitMQ and publishes a message.
 func (c *AMQPClient) Publish(ctx context.Context, params *PublishParams, body []byte) error {
 	ctx, span := c.tracer.Start(ctx, "amqp.publish",
 		trace.WithSpanKind(trace.SpanKindProducer),
@@ -143,15 +143,12 @@ func (c *AMQPClient) Publish(ctx context.Context, params *PublishParams, body []
 			returnConn = false
 			return fmt.Errorf("failed to open channel: %w", err)
 		}
-		return ch.Confirm(false)
+		return nil
 	}); err != nil {
 		c.recordError(ctx, span, c.metrics.publishTotal, err)
 		return err
 	}
 	defer ch.Close()
-
-	// Listen for basic.return (unroutable messages when mandatory=true)
-	returnCh := ch.NotifyReturn(make(chan amqp.Return, 1))
 
 	pub := amqp.Publishing{
 		DeliveryMode:  params.DeliveryMode,
@@ -164,42 +161,12 @@ func (c *AMQPClient) Publish(ctx context.Context, params *PublishParams, body []
 	}
 
 	if err := c.spanDo(ctx, "amqp.publish.send", func(ctx context.Context) error {
-		confirm, err := ch.PublishWithDeferredConfirmWithContext(
-			ctx,
-			params.Exchange,
-			params.RoutingKey,
-			params.Mandatory,
-			false,
-			pub,
-		)
-		if err != nil {
-			returnConn = false
-			return fmt.Errorf("failed to publish message: %w", err)
-		}
-		if !confirm.Wait() {
-			returnConn = false
-			return fmt.Errorf("publish was not confirmed by broker")
-		}
-		return nil
+		return ch.PublishWithContext(ctx, params.Exchange, params.RoutingKey, false, false, pub)
 	}); err != nil {
+		returnConn = false
+		err = fmt.Errorf("failed to publish message: %w", err)
 		c.recordError(ctx, span, c.metrics.publishTotal, err)
 		return err
-	}
-
-	// Check if the message was returned (no matching queue)
-	select {
-	case ret, ok := <-returnCh:
-		if ok {
-			err := &UnroutableError{
-				ReplyCode:  ret.ReplyCode,
-				ReplyText:  ret.ReplyText,
-				Exchange:   ret.Exchange,
-				RoutingKey: ret.RoutingKey,
-			}
-			c.recordError(ctx, span, c.metrics.publishTotal, err)
-			return err
-		}
-	default:
 	}
 
 	slog.DebugContext(ctx, "message published",
@@ -291,7 +258,7 @@ func (c *AMQPClient) RPC(ctx context.Context, params *PublishParams, body []byte
 	}
 
 	if err := c.spanDo(ctx, "amqp.rpc.send", func(ctx context.Context) error {
-		return ch.PublishWithContext(ctx, params.Exchange, params.RoutingKey, params.Mandatory, false, pub)
+		return ch.PublishWithContext(ctx, params.Exchange, params.RoutingKey, false, false, pub)
 	}); err != nil {
 		returnConn = false
 		err = fmt.Errorf("failed to publish RPC request: %w", err)
@@ -352,19 +319,6 @@ type TimeoutError struct {
 
 func (e *TimeoutError) Error() string {
 	return fmt.Sprintf("RPC timeout after %s", e.Timeout)
-}
-
-// UnroutableError represents a message that could not be routed (basic.return).
-type UnroutableError struct {
-	ReplyCode  uint16
-	ReplyText  string
-	Exchange   string
-	RoutingKey string
-}
-
-func (e *UnroutableError) Error() string {
-	return fmt.Sprintf("message unroutable: %d %s (exchange=%q, routing_key=%q)",
-		e.ReplyCode, e.ReplyText, e.Exchange, e.RoutingKey)
 }
 
 func generateID() string {
