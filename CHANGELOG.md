@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.0.3](https://github.com/fujiwara/amqp-gateway/compare/v0.0.2...v0.0.3) - 2026-04-06
+- Clarify AMQP 0-9-1 in README by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/4
+- Add Homebrew and mise install methods to README by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/6
+- Document jsonnet-armed config and env var expansion by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/7
+- Remove publisher confirm mode and mandatory flag by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/8
+- Add custom response support for alias endpoints by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/9
+
 ## [v0.0.2](https://github.com/fujiwara/amqp-gateway/compare/v0.0.1...v0.0.2) - 2026-04-03
 - Rename rabbitmq_url to amqp_url by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/2
 
