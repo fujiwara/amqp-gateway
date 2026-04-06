@@ -178,6 +178,101 @@ func TestAliasNoCredentials(t *testing.T) {
 	}
 }
 
+func TestAliasCustomResponse(t *testing.T) {
+	rmqURL := requireRabbitMQ(t)
+	queueName := fmt.Sprintf("test-alias-response-%d", time.Now().UnixNano())
+	setupTestQueue(t, rmqURL, queueName)
+
+	client := testNewAMQPClient(rmqURL)
+
+	t.Run("custom status and body", func(t *testing.T) {
+		aliases := []AliasConfig{
+			{
+				Path:       "/api/custom",
+				Method:     "publish",
+				Username:   "guest",
+				Password:   "guest",
+				RoutingKey: queueName,
+				Response: &AliasResponseConfig{
+					Status: http.StatusOK,
+					Body:   map[string]string{"result": "ok"},
+				},
+			},
+		}
+		mux := NewServeMux(client, aliases)
+
+		req := httptest.NewRequest("POST", "/api/custom", strings.NewReader("test"))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status: got %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+		}
+		if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("content-type: got %q, want application/json", ct)
+		}
+		want := `{"result":"ok"}`
+		if got := strings.TrimSpace(w.Body.String()); got != want {
+			t.Errorf("body: got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("custom status only", func(t *testing.T) {
+		aliases := []AliasConfig{
+			{
+				Path:       "/api/status-only",
+				Method:     "publish",
+				Username:   "guest",
+				Password:   "guest",
+				RoutingKey: queueName,
+				Response: &AliasResponseConfig{
+					Status: http.StatusCreated,
+				},
+			},
+		}
+		mux := NewServeMux(client, aliases)
+
+		req := httptest.NewRequest("POST", "/api/status-only", strings.NewReader("test"))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("status: got %d, want %d", w.Code, http.StatusCreated)
+		}
+		if w.Body.Len() != 0 {
+			t.Errorf("body: got %q, want empty", w.Body.String())
+		}
+	})
+
+	t.Run("body only (default status)", func(t *testing.T) {
+		aliases := []AliasConfig{
+			{
+				Path:       "/api/body-only",
+				Method:     "publish",
+				Username:   "guest",
+				Password:   "guest",
+				RoutingKey: queueName,
+				Response: &AliasResponseConfig{
+					Body: []string{"queued"},
+				},
+			},
+		}
+		mux := NewServeMux(client, aliases)
+
+		req := httptest.NewRequest("POST", "/api/body-only", strings.NewReader("test"))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusAccepted {
+			t.Fatalf("status: got %d, want %d", w.Code, http.StatusAccepted)
+		}
+		want := `["queued"]`
+		if got := strings.TrimSpace(w.Body.String()); got != want {
+			t.Errorf("body: got %q, want %q", got, want)
+		}
+	})
+}
+
 func TestAliasConfigValidation(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -229,6 +324,19 @@ func TestAliasConfigValidation(t *testing.T) {
 			aliases: []AliasConfig{
 				{Path: "/api/send", Method: "publish", Username: "u", Password: "p"},
 				{Path: "/api/send", Method: "rpc", Username: "u", Password: "p"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid response config",
+			aliases: []AliasConfig{
+				{Path: "/api/send", Method: "publish", Username: "u", Password: "p", Response: &AliasResponseConfig{Status: 200, Body: "ok"}},
+			},
+		},
+		{
+			name: "invalid response status",
+			aliases: []AliasConfig{
+				{Path: "/api/send", Method: "publish", Username: "u", Password: "p", Response: &AliasResponseConfig{Status: 999}},
 			},
 			wantErr: true,
 		},

@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -225,14 +226,18 @@ func handleAlias(client *AMQPClient, alias AliasConfig) http.HandlerFunc {
 				writeAMQPError(w, err)
 				return
 			}
-			w.WriteHeader(http.StatusAccepted)
+			writeAliasResponse(w, alias.Response, http.StatusAccepted)
 		case AliasMethodRPC:
 			msg, err := client.RPC(r.Context(), params, body)
 			if err != nil {
 				writeAMQPError(w, err)
 				return
 			}
-			writeRPCResponse(r.Context(), w, msg)
+			if alias.Response != nil {
+				writeAliasResponse(w, alias.Response, http.StatusOK)
+			} else {
+				writeRPCResponse(r.Context(), w, msg)
+			}
 		}
 	}
 }
@@ -347,6 +352,20 @@ func writeAMQPError(w http.ResponseWriter, err error) {
 
 	slog.Error("AMQP error", "error", err)
 	http.Error(w, "RabbitMQ unavailable", http.StatusServiceUnavailable)
+}
+
+func writeAliasResponse(w http.ResponseWriter, resp *AliasResponseConfig, defaultStatus int) {
+	status := defaultStatus
+	if resp != nil && resp.Status != 0 {
+		status = resp.Status
+	}
+	if resp != nil && resp.Body != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		json.NewEncoder(w).Encode(resp.Body)
+		return
+	}
+	w.WriteHeader(status)
 }
 
 func writeRPCResponse(ctx context.Context, w http.ResponseWriter, msg *amqp.Delivery) {

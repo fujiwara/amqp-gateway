@@ -46,6 +46,15 @@ type AliasConfig struct {
 	ContentType  string            `json:"content_type"`
 	Timeout      time.Duration     `json:"timeout"`
 	Headers      map[string]string `json:"headers"`
+
+	// Response customization for alias endpoints.
+	Response *AliasResponseConfig `json:"response,omitempty"`
+}
+
+// AliasResponseConfig customizes the HTTP response for alias endpoints.
+type AliasResponseConfig struct {
+	Status int `json:"status,omitempty"`
+	Body   any `json:"body,omitempty"`
 }
 
 // toPublishParams converts AliasConfig to PublishParams as defaults.
@@ -99,6 +108,11 @@ func (c *Config) validate() error {
 		}
 		if (a.Username == "") != (a.Password == "") {
 			return fmt.Errorf("aliases[%d]: username and password must both be set or both be empty", i)
+		}
+		if a.Response != nil {
+			if s := a.Response.Status; s != 0 && (s < 100 || s > 599) {
+				return fmt.Errorf("aliases[%d]: response.status must be between 100 and 599", i)
+			}
 		}
 		if paths[a.Path] {
 			return fmt.Errorf("aliases[%d]: duplicate path %q", i, a.Path)
