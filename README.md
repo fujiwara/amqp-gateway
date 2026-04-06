@@ -120,6 +120,17 @@ Alias fields:
 | `content_type` | Default Content-Type | no |
 | `timeout` | RPC timeout (default: `30s`) | no |
 | `headers` | Default AMQP headers (key-value map) | no |
+| `response` | Custom HTTP response (see below) | no |
+
+**Response customization:**
+
+| Field | Description |
+|---|---|
+| `response.status` | HTTP status code (overrides default: `202` for publish, `200` for rpc) |
+| `response.content_type` | Content-Type header (default: `application/json`) |
+| `response.body` | Response body. When `content_type` is `text/*`, must be a string and returned as-is. Otherwise JSON-encoded. |
+
+When `response` is set on an RPC alias, the RPC reply from RabbitMQ is discarded and the configured response is returned instead.
 
 HTTP request headers (`Amqp-*`, `Content-Type`) can override alias defaults.
 If the client provides `Authorization: Basic ...`, it overrides the alias credentials.
