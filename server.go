@@ -360,10 +360,23 @@ func writeAliasResponse(w http.ResponseWriter, resp *AliasResponseConfig, defaul
 		status = resp.Status
 	}
 	if resp != nil && resp.Body != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		json.NewEncoder(w).Encode(resp.Body)
+		ct := resp.ContentType
+		if strings.HasPrefix(ct, "text/") {
+			w.Header().Set("Content-Type", ct)
+			w.WriteHeader(status)
+			fmt.Fprint(w, resp.Body)
+		} else {
+			if ct == "" {
+				ct = "application/json"
+			}
+			w.Header().Set("Content-Type", ct)
+			w.WriteHeader(status)
+			json.NewEncoder(w).Encode(resp.Body)
+		}
 		return
+	}
+	if resp != nil && resp.ContentType != "" {
+		w.Header().Set("Content-Type", resp.ContentType)
 	}
 	w.WriteHeader(status)
 }

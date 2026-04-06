@@ -271,6 +271,69 @@ func TestAliasCustomResponse(t *testing.T) {
 			t.Errorf("body: got %q, want %q", got, want)
 		}
 	})
+
+	t.Run("text content type", func(t *testing.T) {
+		aliases := []AliasConfig{
+			{
+				Path:       "/api/text",
+				Method:     "publish",
+				Username:   "guest",
+				Password:   "guest",
+				RoutingKey: queueName,
+				Response: &AliasResponseConfig{
+					ContentType: "text/plain",
+					Body:        "accepted",
+				},
+			},
+		}
+		mux := NewServeMux(client, aliases)
+
+		req := httptest.NewRequest("POST", "/api/text", strings.NewReader("test"))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusAccepted {
+			t.Fatalf("status: got %d, want %d", w.Code, http.StatusAccepted)
+		}
+		if ct := w.Header().Get("Content-Type"); ct != "text/plain" {
+			t.Errorf("content-type: got %q, want text/plain", ct)
+		}
+		if got := w.Body.String(); got != "accepted" {
+			t.Errorf("body: got %q, want %q", got, "accepted")
+		}
+	})
+
+	t.Run("custom content type for json", func(t *testing.T) {
+		aliases := []AliasConfig{
+			{
+				Path:       "/api/custom-ct",
+				Method:     "publish",
+				Username:   "guest",
+				Password:   "guest",
+				RoutingKey: queueName,
+				Response: &AliasResponseConfig{
+					ContentType: "application/vnd.api+json",
+					Body:        map[string]string{"status": "ok"},
+				},
+			},
+		}
+		mux := NewServeMux(client, aliases)
+
+		req := httptest.NewRequest("POST", "/api/custom-ct", strings.NewReader("test"))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusAccepted {
+			t.Fatalf("status: got %d, want %d", w.Code, http.StatusAccepted)
+		}
+		if ct := w.Header().Get("Content-Type"); ct != "application/vnd.api+json" {
+			t.Errorf("content-type: got %q, want application/vnd.api+json", ct)
+		}
+		want := `{"status":"ok"}`
+		if got := strings.TrimSpace(w.Body.String()); got != want {
+			t.Errorf("body: got %q, want %q", got, want)
+		}
+	})
 }
 
 func TestAliasConfigValidation(t *testing.T) {
@@ -337,6 +400,19 @@ func TestAliasConfigValidation(t *testing.T) {
 			name: "invalid response status",
 			aliases: []AliasConfig{
 				{Path: "/api/send", Method: "publish", Username: "u", Password: "p", Response: &AliasResponseConfig{Status: 999}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "text content type with string body",
+			aliases: []AliasConfig{
+				{Path: "/api/send", Method: "publish", Username: "u", Password: "p", Response: &AliasResponseConfig{ContentType: "text/plain", Body: "ok"}},
+			},
+		},
+		{
+			name: "text content type with non-string body",
+			aliases: []AliasConfig{
+				{Path: "/api/send", Method: "publish", Username: "u", Password: "p", Response: &AliasResponseConfig{ContentType: "text/html", Body: 123}},
 			},
 			wantErr: true,
 		},

@@ -127,7 +127,8 @@ Alias fields:
 | Field | Description |
 |---|---|
 | `response.status` | HTTP status code (overrides default: `202` for publish, `200` for rpc) |
-| `response.body` | Response body (any JSON value, returned as `application/json`) |
+| `response.content_type` | Content-Type header (default: `application/json`) |
+| `response.body` | Response body. When `content_type` is `text/*`, must be a string and returned as-is. Otherwise JSON-encoded. |
 
 When `response` is set on an RPC alias, the RPC reply from RabbitMQ is discarded and the configured response is returned instead.
 

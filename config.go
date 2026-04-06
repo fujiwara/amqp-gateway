@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	armed "github.com/fujiwara/jsonnet-armed"
@@ -53,8 +54,9 @@ type AliasConfig struct {
 
 // AliasResponseConfig customizes the HTTP response for alias endpoints.
 type AliasResponseConfig struct {
-	Status int `json:"status,omitempty"`
-	Body   any `json:"body,omitempty"`
+	Status      int    `json:"status,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
+	Body        any    `json:"body,omitempty"`
 }
 
 // toPublishParams converts AliasConfig to PublishParams as defaults.
@@ -112,6 +114,11 @@ func (c *Config) validate() error {
 		if a.Response != nil {
 			if s := a.Response.Status; s != 0 && (s < 100 || s > 599) {
 				return fmt.Errorf("aliases[%d]: response.status must be between 100 and 599", i)
+			}
+			if strings.HasPrefix(a.Response.ContentType, "text/") && a.Response.Body != nil {
+				if _, ok := a.Response.Body.(string); !ok {
+					return fmt.Errorf("aliases[%d]: response.body must be a string when content_type is text/*", i)
+				}
 			}
 		}
 		if paths[a.Path] {
