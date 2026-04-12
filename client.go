@@ -46,6 +46,8 @@ func (o *ClientOptions) buildRequest(method, path string) (*http.Request, error)
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	req.Header.Set("User-Agent", "amqp-gateway/"+Version)
+
 	if o.User != "" {
 		req.SetBasicAuth(o.User, o.Password)
 	}
