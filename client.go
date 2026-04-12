@@ -129,7 +129,9 @@ func (cmd *ClientPublishCmd) Run(ctx context.Context, cli *CLI) error {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("request failed: %w", err)
+		err = fmt.Errorf("request failed: %w", err)
+		slog.ErrorContext(ctx, "publish", "error", err)
+		return err
 	}
 	defer resp.Body.Close()
 
@@ -138,6 +140,7 @@ func (cmd *ClientPublishCmd) Run(ctx context.Context, cli *CLI) error {
 		err := fmt.Errorf("publish failed: %s %s", resp.Status, string(body))
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		slog.ErrorContext(ctx, "publish", "error", err)
 		return err
 	}
 	slog.InfoContext(ctx, "publish", "status", resp.Status)
@@ -165,7 +168,9 @@ func (cmd *ClientRPCCmd) Run(ctx context.Context, cli *CLI) error {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("request failed: %w", err)
+		err = fmt.Errorf("request failed: %w", err)
+		slog.ErrorContext(ctx, "rpc", "error", err)
+		return err
 	}
 	defer resp.Body.Close()
 
@@ -174,6 +179,7 @@ func (cmd *ClientRPCCmd) Run(ctx context.Context, cli *CLI) error {
 		err := fmt.Errorf("rpc failed: %s %s", resp.Status, string(body))
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		slog.ErrorContext(ctx, "rpc", "error", err)
 		return err
 	}
 
