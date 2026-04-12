@@ -26,7 +26,7 @@ const tracerName = "github.com/fujiwara/amqp-gateway"
 
 // setupOTelProviders initializes OpenTelemetry MeterProvider and TracerProvider
 // if OTEL_EXPORTER_OTLP_ENDPOINT is set.
-func setupOTelProviders(ctx context.Context) (func(context.Context) error, error) {
+func setupOTelProviders(ctx context.Context, serviceName string) (func(context.Context) error, error) {
 	noop := func(context.Context) error { return nil }
 
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" {
@@ -64,7 +64,7 @@ func setupOTelProviders(ctx context.Context) (func(context.Context) error, error
 
 	res := resource.NewWithAttributes(
 		semconv.SchemaURL,
-		semconv.ServiceName("amqp-gateway"),
+		semconv.ServiceName(serviceName),
 	)
 
 	meterProvider := sdkmetric.NewMeterProvider(
