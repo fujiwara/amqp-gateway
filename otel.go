@@ -9,7 +9,6 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -84,6 +83,8 @@ func setupOTelProviders(ctx context.Context) (func(context.Context) error, error
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
 		slog.Warn("OpenTelemetry error", "error", err)
 	}))
+
+	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	if protocol == "" {
 		protocol = "http/protobuf"
@@ -194,13 +195,4 @@ func extractTraceContext(ctx context.Context, headers amqp.Table) context.Contex
 	}
 	prop := propagation.TraceContext{}
 	return prop.Extract(ctx, amqpTableCarrier(headers))
-}
-
-// headerAttributes converts AMQP table entries to span attributes.
-func headerAttributes(prefix string, headers amqp.Table) []attribute.KeyValue {
-	attrs := make([]attribute.KeyValue, 0, len(headers))
-	for k, v := range headers {
-		attrs = append(attrs, attribute.String(prefix+k, fmt.Sprintf("%v", v)))
-	}
-	return attrs
 }

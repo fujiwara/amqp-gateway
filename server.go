@@ -15,10 +15,10 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -72,7 +72,7 @@ func NewServeMux(client *AMQPClient, aliases []AliasConfig) http.Handler {
 	for _, a := range aliases {
 		mux.HandleFunc("POST "+a.Path, handleAlias(client, a))
 	}
-	return accessLog(mux, client.metrics, client.tracer)
+	return otelhttp.NewHandler(accessLog(mux, client.metrics), "amqp-gateway")
 }
 
 // statusResponseWriter wraps http.ResponseWriter to capture the status code.
@@ -86,26 +86,14 @@ func (w *statusResponseWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-func accessLog(next http.Handler, metrics *Metrics, tracer trace.Tracer) http.Handler {
+func accessLog(next http.Handler, metrics *Metrics) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Extract trace context from incoming HTTP request
-		prop := propagation.TraceContext{}
-		ctx := prop.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
-
-		ctx, span := tracer.Start(ctx, "http.request",
-			trace.WithAttributes(
-				semconv.HTTPRequestMethodKey.String(r.Method),
-				semconv.URLPath(r.URL.Path),
-			),
-		)
-
 		start := time.Now()
 		sw := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(sw, r.WithContext(ctx))
+		next.ServeHTTP(sw, r)
 		elapsed := time.Since(start)
 
-		span.SetAttributes(semconv.HTTPResponseStatusCode(sw.status))
-		span.End()
+		ctx := r.Context()
 
 		// Record metrics
 		metricAttrs := metric.WithAttributes(
@@ -119,13 +107,16 @@ func accessLog(next http.Handler, metrics *Metrics, tracer trace.Tracer) http.Ha
 		))
 		metrics.httpRequestDuration.Record(ctx, elapsed.Seconds(), metricAttrs)
 
-		// Access log with trace context
 		attrs := []any{
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", sw.status,
 			"duration", elapsed.String(),
 			"remote_addr", r.RemoteAddr,
+		}
+		if spanCtx := trace.SpanContextFromContext(ctx); spanCtx.IsValid() {
+			attrs = append(attrs, "trace_id", spanCtx.TraceID().String())
+			attrs = append(attrs, "span_id", spanCtx.SpanID().String())
 		}
 		if user, _, ok := parseBasicAuth(r); ok {
 			attrs = append(attrs, "user", user)
