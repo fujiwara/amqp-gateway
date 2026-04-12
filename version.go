@@ -1,3 +1,3 @@
 package gateway
 
-var Version = "v0.0.3"
+var Version = "v0.1.0"
