@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,6 +9,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ClientOptions holds common options for publish and rpc client commands.
@@ -105,20 +110,32 @@ type ClientPublishCmd struct {
 	ClientOptions `kong:"embed"`
 }
 
-func (cmd *ClientPublishCmd) Run(cli *CLI) error {
+func (cmd *ClientPublishCmd) Run(ctx context.Context, cli *CLI) error {
+	ctx, span := newTracer().Start(ctx, "client.publish",
+		trace.WithSpanKind(trace.SpanKindClient),
+	)
+	defer span.End()
+
 	req, err := cmd.buildRequest("POST", "/v1/publish")
 	if err != nil {
 		return err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	req = req.WithContext(ctx)
+
+	resp, err := otelHTTPClient().Do(req)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusAccepted {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("publish failed: %s %s", resp.Status, string(body))
+		err := fmt.Errorf("publish failed: %s %s", resp.Status, string(body))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
 	}
 	fmt.Fprintln(os.Stderr, resp.Status)
 	return nil
@@ -129,20 +146,32 @@ type ClientRPCCmd struct {
 	ClientOptions `kong:"embed"`
 }
 
-func (cmd *ClientRPCCmd) Run(cli *CLI) error {
+func (cmd *ClientRPCCmd) Run(ctx context.Context, cli *CLI) error {
+	ctx, span := newTracer().Start(ctx, "client.rpc",
+		trace.WithSpanKind(trace.SpanKindClient),
+	)
+	defer span.End()
+
 	req, err := cmd.buildRequest("POST", "/v1/rpc")
 	if err != nil {
 		return err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	req = req.WithContext(ctx)
+
+	resp, err := otelHTTPClient().Do(req)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("rpc failed: %s %s", resp.Status, string(body))
+		err := fmt.Errorf("rpc failed: %s %s", resp.Status, string(body))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
 	}
 
 	// Print response headers with AMQP- prefix to stderr
@@ -156,4 +185,10 @@ func (cmd *ClientRPCCmd) Run(cli *CLI) error {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 	return nil
+}
+
+func otelHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+	}
 }
