@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/alecthomas/kong"
 )
@@ -75,11 +76,16 @@ func RunCLI(ctx context.Context) error {
 		kong.BindTo(ctx, (*context.Context)(nil)),
 	)
 	setupLogger(cli.LogLevel)
-	shutdownOTel, err := setupOTelProviders(ctx)
+	serviceName := "amqp-gateway"
+	cmd := kctx.Command()
+	if strings.HasPrefix(cmd, "publish") || strings.HasPrefix(cmd, "rpc") {
+		serviceName = "amqp-gateway-client"
+	}
+	shutdownOTel, err := setupOTelProviders(ctx, serviceName)
 	if err != nil {
 		return fmt.Errorf("failed to setup OpenTelemetry providers: %w", err)
 	}
-	defer shutdownOTel(ctx)
+	defer shutdownOTel(context.WithoutCancel(ctx))
 	return kctx.Run(&cli)
 }
 

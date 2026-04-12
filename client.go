@@ -1,13 +1,19 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ClientOptions holds common options for publish and rpc client commands.
@@ -40,6 +46,8 @@ func (o *ClientOptions) buildRequest(method, path string) (*http.Request, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+
+	req.Header.Set("User-Agent", "amqp-gateway/"+Version)
 
 	if o.User != "" {
 		req.SetBasicAuth(o.User, o.Password)
@@ -105,22 +113,37 @@ type ClientPublishCmd struct {
 	ClientOptions `kong:"embed"`
 }
 
-func (cmd *ClientPublishCmd) Run(cli *CLI) error {
+func (cmd *ClientPublishCmd) Run(ctx context.Context, cli *CLI) error {
+	ctx, span := newTracer().Start(ctx, "client.publish",
+		trace.WithSpanKind(trace.SpanKindClient),
+	)
+	defer span.End()
+
 	req, err := cmd.buildRequest("POST", "/v1/publish")
 	if err != nil {
 		return err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	req = req.WithContext(ctx)
+
+	resp, err := otelHTTPClient().Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		err = fmt.Errorf("request failed: %w", err)
+		slog.ErrorContext(ctx, "publish", "error", err)
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusAccepted {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("publish failed: %s %s", resp.Status, string(body))
+		err := fmt.Errorf("publish failed: %s %s", resp.Status, string(body))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		slog.ErrorContext(ctx, "publish", "error", err)
+		return err
 	}
-	fmt.Fprintln(os.Stderr, resp.Status)
+	slog.InfoContext(ctx, "publish", "status", resp.Status)
 	return nil
 }
 
@@ -129,26 +152,41 @@ type ClientRPCCmd struct {
 	ClientOptions `kong:"embed"`
 }
 
-func (cmd *ClientRPCCmd) Run(cli *CLI) error {
+func (cmd *ClientRPCCmd) Run(ctx context.Context, cli *CLI) error {
+	ctx, span := newTracer().Start(ctx, "client.rpc",
+		trace.WithSpanKind(trace.SpanKindClient),
+	)
+	defer span.End()
+
 	req, err := cmd.buildRequest("POST", "/v1/rpc")
 	if err != nil {
 		return err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	req = req.WithContext(ctx)
+
+	resp, err := otelHTTPClient().Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		err = fmt.Errorf("request failed: %w", err)
+		slog.ErrorContext(ctx, "rpc", "error", err)
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("rpc failed: %s %s", resp.Status, string(body))
+		err := fmt.Errorf("rpc failed: %s %s", resp.Status, string(body))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		slog.ErrorContext(ctx, "rpc", "error", err)
+		return err
 	}
 
-	// Print response headers with AMQP- prefix to stderr
+	// Log response headers with AMQP- prefix
 	for key, values := range resp.Header {
 		if strings.HasPrefix(key, "Amqp-") {
-			fmt.Fprintf(os.Stderr, "%s: %s\n", key, values[0])
+			slog.InfoContext(ctx, "rpc response header", "key", key, "value", values[0])
 		}
 	}
 	// Print response body to stdout
@@ -156,4 +194,10 @@ func (cmd *ClientRPCCmd) Run(cli *CLI) error {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 	return nil
+}
+
+func otelHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+	}
 }

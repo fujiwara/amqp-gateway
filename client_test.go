@@ -39,6 +39,7 @@ func TestClientOptionsBuildRequest(t *testing.T) {
 	}
 
 	checks := map[string]string{
+		"User-Agent":          "amqp-gateway/" + Version,
 		"Amqp-Exchange":       "my-exchange",
 		"Amqp-Routing-Key":    "my.key",
 		"Amqp-Vhost":          "myvhost",
