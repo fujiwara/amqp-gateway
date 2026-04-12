@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/alecthomas/kong"
 )
@@ -86,11 +85,7 @@ func RunCLI(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to setup OpenTelemetry providers: %w", err)
 	}
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		shutdownOTel(shutdownCtx)
-	}()
+	defer shutdownOTel(context.WithoutCancel(ctx))
 	return kctx.Run(&cli)
 }
 
