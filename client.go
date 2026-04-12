@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -139,7 +140,7 @@ func (cmd *ClientPublishCmd) Run(ctx context.Context, cli *CLI) error {
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
-	fmt.Fprintln(os.Stderr, resp.Status)
+	slog.InfoContext(ctx, "publish", "status", resp.Status)
 	return nil
 }
 
@@ -176,10 +177,10 @@ func (cmd *ClientRPCCmd) Run(ctx context.Context, cli *CLI) error {
 		return err
 	}
 
-	// Print response headers with AMQP- prefix to stderr
+	// Log response headers with AMQP- prefix
 	for key, values := range resp.Header {
 		if strings.HasPrefix(key, "Amqp-") {
-			fmt.Fprintf(os.Stderr, "%s: %s\n", key, values[0])
+			slog.InfoContext(ctx, "rpc response header", "key", key, "value", values[0])
 		}
 	}
 	// Print response body to stdout
