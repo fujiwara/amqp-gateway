@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // RunServer starts the HTTP server.
@@ -112,6 +113,10 @@ func accessLog(next http.Handler, metrics *Metrics) http.Handler {
 			"status", sw.status,
 			"duration", elapsed.String(),
 			"remote_addr", r.RemoteAddr,
+		}
+		if spanCtx := trace.SpanContextFromContext(ctx); spanCtx.IsValid() {
+			attrs = append(attrs, "trace_id", spanCtx.TraceID().String())
+			attrs = append(attrs, "span_id", spanCtx.SpanID().String())
 		}
 		if user, _, ok := parseBasicAuth(r); ok {
 			attrs = append(attrs, "user", user)
