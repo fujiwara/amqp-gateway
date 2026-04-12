@@ -89,7 +89,7 @@ func setupOTelProviders(ctx context.Context) (func(context.Context) error, error
 	if protocol == "" {
 		protocol = "http/protobuf"
 	}
-	slog.Info("OpenTelemetry enabled", "protocol", protocol)
+	slog.Debug("OpenTelemetry enabled", "protocol", protocol)
 
 	shutdown := func(ctx context.Context) error {
 		if err := tracerProvider.Shutdown(ctx); err != nil {
