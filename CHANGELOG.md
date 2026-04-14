@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.1.1](https://github.com/fujiwara/amqp-gateway/compare/v0.1.0...v0.1.1) - 2026-04-14
+- Auto-generate message_id with UUID v7 when not provided by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/13
+
 ## [v0.1.0](https://github.com/fujiwara/amqp-gateway/compare/v0.0.3...v0.1.0) - 2026-04-12
 - Use otelhttp for HTTP tracing instrumentation by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/10
 - Add OTel tracing to client subcommands by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/12
