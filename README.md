@@ -223,7 +223,7 @@ RabbitMQ connectivity check. Returns `200 OK` if connected, `503` otherwise.
 | `Amqp-Routing-Key` | routing key | `""` |
 | `Amqp-Vhost` | vhost | `/` |
 | `Amqp-Delivery-Mode` | delivery_mode | `2` (persistent) |
-| `Amqp-Message-Id` | message_id | — |
+| `Amqp-Message-Id` | message_id | auto-generated (UUID v7) |
 | `Amqp-Correlation-Id` | correlation_id | auto-generated for RPC |
 | `Amqp-Expiration` | expiration | — |
 | `Amqp-Timeout` | — | `30000` (RPC only, ms) |

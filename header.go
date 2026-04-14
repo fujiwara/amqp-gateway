@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -53,6 +54,10 @@ func ParsePublishParams(r *http.Request) (*PublishParams, error) {
 		ContentType:   r.Header.Get("Content-Type"),
 		DeliveryMode:  defaultDeliveryMode,
 		Headers:       amqp.Table{},
+	}
+
+	if p.MessageID == "" {
+		p.MessageID = uuid.Must(uuid.NewV7()).String()
 	}
 
 	if p.VHost == "" {
