@@ -322,5 +322,5 @@ func (e *TimeoutError) Error() string {
 }
 
 func generateID() string {
-	return uuid.New().String()
+	return uuid.Must(uuid.NewV7()).String()
 }

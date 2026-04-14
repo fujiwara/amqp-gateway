@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestParsePublishParams(t *testing.T) {
@@ -26,6 +28,14 @@ func TestParsePublishParams(t *testing.T) {
 				}
 				if p.Timeout != 30*time.Second {
 					t.Errorf("Timeout: got %v, want 30s", p.Timeout)
+				}
+				// MessageID should be auto-generated as UUID v7
+				parsed, err := uuid.Parse(p.MessageID)
+				if err != nil {
+					t.Fatalf("MessageID is not a valid UUID: %v", err)
+				}
+				if parsed.Version() != 7 {
+					t.Errorf("MessageID UUID version: got %d, want 7", parsed.Version())
 				}
 			},
 		},
