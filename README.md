@@ -283,6 +283,7 @@ Spans created:
 | `amqp_gateway.http.duration` | Histogram (s) | method, path |
 | `amqp_gateway.publish.total` | Counter | result (success/error) |
 | `amqp_gateway.rpc.total` | Counter | result (success/error/timeout) |
+| `amqp_gateway.log.messages` | Counter | level |
 
 ### Log Correlation
 
