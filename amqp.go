@@ -111,6 +111,7 @@ func (c *AMQPClient) Publish(ctx context.Context, params *PublishParams, body []
 	ctx, span := c.tracer.Start(ctx, "amqp.publish",
 		trace.WithSpanKind(trace.SpanKindProducer),
 		publishAttrs(params),
+		trace.WithAttributes(attribute.String("messaging.message.id", params.MessageID)),
 	)
 	defer span.End()
 
@@ -172,6 +173,7 @@ func (c *AMQPClient) Publish(ctx context.Context, params *PublishParams, body []
 	slog.DebugContext(ctx, "message published",
 		"exchange", params.Exchange,
 		"routing_key", params.RoutingKey,
+		"message_id", params.MessageID,
 	)
 	c.metrics.publishTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "success")))
 	return nil
@@ -182,6 +184,7 @@ func (c *AMQPClient) RPC(ctx context.Context, params *PublishParams, body []byte
 	ctx, span := c.tracer.Start(ctx, "amqp.rpc",
 		trace.WithSpanKind(trace.SpanKindClient),
 		publishAttrs(params),
+		trace.WithAttributes(attribute.String("messaging.message.id", params.MessageID)),
 	)
 	defer span.End()
 
@@ -269,6 +272,7 @@ func (c *AMQPClient) RPC(ctx context.Context, params *PublishParams, body []byte
 	slog.DebugContext(ctx, "RPC request published, waiting for response",
 		"exchange", params.Exchange,
 		"routing_key", params.RoutingKey,
+		"message_id", params.MessageID,
 		"correlation_id", correlationID,
 		"reply_to", q.Name,
 	)

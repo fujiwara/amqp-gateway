@@ -130,6 +130,9 @@ func accessLog(next http.Handler, metrics *Metrics) http.Handler {
 		if v := r.Header.Get(headerRoutingKey); v != "" {
 			attrs = append(attrs, "routing_key", v)
 		}
+		if v := r.Header.Get(headerMessageID); v != "" {
+			attrs = append(attrs, "message_id", v)
+		}
 		slog.InfoContext(ctx, "access", attrs...)
 	})
 }
