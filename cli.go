@@ -8,6 +8,9 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kong"
+	"github.com/fujiwara/sloghandler/otelmetrics"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // CLI represents the command-line interface.
@@ -75,7 +78,6 @@ func RunCLI(ctx context.Context) error {
 		kong.Vars{"version": Version},
 		kong.BindTo(ctx, (*context.Context)(nil)),
 	)
-	setupLogger(cli.LogLevel)
 	serviceName := "amqp-gateway"
 	cmd := kctx.Command()
 	if strings.HasPrefix(cmd, "publish") || strings.HasPrefix(cmd, "rpc") {
@@ -86,6 +88,7 @@ func RunCLI(ctx context.Context) error {
 		return fmt.Errorf("failed to setup OpenTelemetry providers: %w", err)
 	}
 	defer shutdownOTel(context.WithoutCancel(ctx))
+	setupLogger(cli.LogLevel)
 	return kctx.Run(&cli)
 }
 
@@ -101,6 +104,22 @@ func setupLogger(level string) {
 	default:
 		lv = slog.LevelInfo
 	}
-	handler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lv})
-	slog.SetDefault(slog.New(newTraceHandler(handler)))
+	jsonHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lv})
+
+	meter := otel.Meter(tracerName)
+	logCounter, err := meter.Int64Counter("amqp_gateway.log.messages",
+		metric.WithDescription("Log messages total by level"),
+	)
+	if err != nil {
+		slog.Error("failed to create log messages counter", "error", err)
+		slog.SetDefault(slog.New(newTraceHandler(jsonHandler)))
+		return
+	}
+	slog.SetDefault(slog.New(newTraceHandler(newMetricsHandler(jsonHandler, logCounter, lv))))
+}
+
+func newMetricsHandler(base slog.Handler, counter metric.Int64Counter, minLevel slog.Level) slog.Handler {
+	return otelmetrics.NewHandlerWithOptions(base, counter, &otelmetrics.Options{
+		MinLevel: minLevel,
+	})
 }
