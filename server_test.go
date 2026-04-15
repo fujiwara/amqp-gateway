@@ -64,6 +64,69 @@ func TestHandlePublishBadHeader(t *testing.T) {
 	}
 }
 
+func TestPublishMessageIDResponseHeader(t *testing.T) {
+	client := testNewAMQPClient("amqp://localhost:5672")
+	handler := handlePublish(client)
+
+	t.Run("explicit message_id", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/v1/publish", strings.NewReader("test"))
+		req.Header.Set("Authorization", basicAuth("guest", "guest"))
+		req.Header.Set("Amqp-Message-Id", "explicit-id-123")
+		w := httptest.NewRecorder()
+		handler(w, req)
+
+		got := w.Header().Get("Amqp-Message-Id")
+		if got != "explicit-id-123" {
+			t.Errorf("Amqp-Message-Id header: got %q, want %q", got, "explicit-id-123")
+		}
+	})
+
+	t.Run("auto-generated message_id", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/v1/publish", strings.NewReader("test"))
+		req.Header.Set("Authorization", basicAuth("guest", "guest"))
+		// No Amqp-Message-Id header set
+		w := httptest.NewRecorder()
+		handler(w, req)
+
+		got := w.Header().Get("Amqp-Message-Id")
+		if got == "" {
+			t.Error("Amqp-Message-Id header should be set with auto-generated ID")
+		}
+	})
+}
+
+func TestRPCMessageIDResponseHeader(t *testing.T) {
+	client := testNewAMQPClient("amqp://localhost:5672")
+	handler := handleRPC(client)
+
+	t.Run("explicit message_id", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/v1/rpc", strings.NewReader("test"))
+		req.Header.Set("Authorization", basicAuth("guest", "guest"))
+		req.Header.Set("Amqp-Message-Id", "rpc-id-456")
+		req.Header.Set("Amqp-Timeout", "100")
+		w := httptest.NewRecorder()
+		handler(w, req)
+
+		got := w.Header().Get("Amqp-Message-Id")
+		if got != "rpc-id-456" {
+			t.Errorf("Amqp-Message-Id header: got %q, want %q", got, "rpc-id-456")
+		}
+	})
+
+	t.Run("auto-generated message_id", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/v1/rpc", strings.NewReader("test"))
+		req.Header.Set("Authorization", basicAuth("guest", "guest"))
+		req.Header.Set("Amqp-Timeout", "100")
+		w := httptest.NewRecorder()
+		handler(w, req)
+
+		got := w.Header().Get("Amqp-Message-Id")
+		if got == "" {
+			t.Error("Amqp-Message-Id header should be set with auto-generated ID")
+		}
+	})
+}
+
 func TestParseBasicAuth(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -107,6 +107,11 @@ func TestIntegrationPublish(t *testing.T) {
 		t.Fatalf("publish status: got %d, want %d, body: %s", w.Code, http.StatusAccepted, w.Body.String())
 	}
 
+	// Verify message_id is returned in response header
+	if got := w.Header().Get("Amqp-Message-Id"); got != "test-msg-001" {
+		t.Errorf("response Amqp-Message-Id: got %q, want %q", got, "test-msg-001")
+	}
+
 	// Verify the message arrived in the queue
 	msg := consumeOne(t, rmqURL, queueName, 5*time.Second)
 	if string(msg.Body) != body {
@@ -123,6 +128,38 @@ func TestIntegrationPublish(t *testing.T) {
 	}
 	if v, ok := msg.Headers["X-Custom"]; !ok || fmt.Sprintf("%v", v) != "custom-value" {
 		t.Errorf("header X-Custom: got %v", msg.Headers["X-Custom"])
+	}
+}
+
+func TestIntegrationPublishAutoMessageID(t *testing.T) {
+	rmqURL := requireRabbitMQ(t)
+	queueName := fmt.Sprintf("test-publish-auto-id-%d", time.Now().UnixNano())
+	setupTestQueue(t, rmqURL, queueName)
+
+	client := testNewAMQPClient(rmqURL)
+	mux := testNewServeMux(client)
+
+	req := httptest.NewRequest("POST", "/v1/publish", strings.NewReader("test"))
+	req.Header.Set("Authorization", testBasicAuth("guest", "guest"))
+	req.Header.Set("Amqp-Routing-Key", queueName)
+	// No Amqp-Message-Id header — should be auto-generated
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("publish status: got %d, want %d, body: %s", w.Code, http.StatusAccepted, w.Body.String())
+	}
+
+	// Verify auto-generated message_id in response header
+	responseID := w.Header().Get("Amqp-Message-Id")
+	if responseID == "" {
+		t.Fatal("response Amqp-Message-Id should be set with auto-generated ID")
+	}
+
+	// Verify the same message_id in the AMQP message
+	msg := consumeOne(t, rmqURL, queueName, 5*time.Second)
+	if msg.MessageId != responseID {
+		t.Errorf("AMQP message_id %q should match response header %q", msg.MessageId, responseID)
 	}
 }
 
