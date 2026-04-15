@@ -130,7 +130,7 @@ func accessLog(next http.Handler, metrics *Metrics) http.Handler {
 		if v := r.Header.Get(headerRoutingKey); v != "" {
 			attrs = append(attrs, "routing_key", v)
 		}
-		if v := r.Header.Get(headerMessageID); v != "" {
+		if v := sw.Header().Get(headerMessageID); v != "" {
 			attrs = append(attrs, "message_id", v)
 		}
 		slog.InfoContext(ctx, "access", attrs...)
@@ -148,6 +148,7 @@ func handlePublish(client *AMQPClient) http.HandlerFunc {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
+		w.Header().Set(headerMessageID, params.MessageID)
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -175,6 +176,7 @@ func handleRPC(client *AMQPClient) http.HandlerFunc {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
+		w.Header().Set(headerMessageID, params.MessageID)
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -207,6 +209,7 @@ func handleAlias(client *AMQPClient, alias AliasConfig) http.HandlerFunc {
 			return
 		}
 		applyHeaderOverrides(r, params)
+		w.Header().Set(headerMessageID, params.MessageID)
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
