@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.1.2](https://github.com/fujiwara/amqp-gateway/compare/v0.1.1...v0.1.2) - 2026-04-15
+- Add log message metrics by level by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/15
+- Add message_id to logs and trace spans by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/17
+
 ## [v0.1.1](https://github.com/fujiwara/amqp-gateway/compare/v0.1.0...v0.1.1) - 2026-04-14
 - Auto-generate message_id with UUID v7 when not provided by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/13
 
