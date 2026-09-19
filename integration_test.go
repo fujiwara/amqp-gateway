@@ -53,9 +53,32 @@ func setupTestQueue(t *testing.T, url, queueName string) {
 		t.Fatalf("failed to open channel: %v", err)
 	}
 	defer ch.Close()
-	_, err = ch.QueueDeclare(queueName, false, true, false, false, nil)
+	// The queue must be durable because RabbitMQ 4.3+ denies transient
+	// non-exclusive queues by default.
+	_, err = ch.QueueDeclare(queueName, true, true, false, false, nil)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
+	}
+	t.Cleanup(func() { deleteTestQueue(t, url, queueName) })
+}
+
+// deleteTestQueue deletes a queue declared by setupTestQueue.
+func deleteTestQueue(t *testing.T, url, queueName string) {
+	t.Helper()
+	conn, err := amqp.Dial(url)
+	if err != nil {
+		t.Logf("failed to connect: %v", err)
+		return
+	}
+	defer conn.Close()
+	ch, err := conn.Channel()
+	if err != nil {
+		t.Logf("failed to open channel: %v", err)
+		return
+	}
+	defer ch.Close()
+	if _, err := ch.QueueDelete(queueName, false, false, false); err != nil {
+		t.Logf("failed to delete queue: %v", err)
 	}
 }
 
