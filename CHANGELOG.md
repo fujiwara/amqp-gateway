@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.1.3](https://github.com/fujiwara/amqp-gateway/compare/v0.1.2...v0.1.3) - 2026-09-19
+- Declare durable queues in tests by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/33
+- Rename CLAUDE.md to AGENTS.md by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/32
+- Update Go versions in CI and release workflows by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/35
+
 ## [v0.1.2](https://github.com/fujiwara/amqp-gateway/compare/v0.1.1...v0.1.2) - 2026-04-15
 - Add log message metrics by level by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/15
 - Add message_id to logs and trace spans by @fujiwara in https://github.com/fujiwara/amqp-gateway/pull/17
