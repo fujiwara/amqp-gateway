@@ -49,5 +49,5 @@ Aligned with `fujiwara/mqsubscriber`:
 
 ## CI
 
-- `test.yml`: Runs `go test -race ./...` with RabbitMQ service container (Go 1.25/1.26 matrix)
+- `test.yml`: Runs `go test -race ./...` with RabbitMQ service container (Go 1.26/1.27 matrix)
 - `tagpr-release.yml`: `Songmu/tagpr` + `goreleaser`
